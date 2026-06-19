@@ -1,52 +1,75 @@
 #include "PluginEditor.h"
 
-//==============================================================================
 AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor& p)
-    : AudioProcessorEditor (&p), processorRef (p)
+    : AudioProcessorEditor (&p),
+      processorRef (p),
+      rackColumn  (p.getRack()),
+      meterBridge (p.getRack())
 {
+    setLookAndFeel (&lookAndFeel);
+
+    addAndMakeVisible (header);
+    addAndMakeVisible (rackColumn);
+    addAndMakeVisible (mainStage);
+    addAndMakeVisible (meterBridge);
+
+    // Wire rack column selection to main stage
+    rackColumn.onModuleSelected = [this] (RackModule* m)
+    {
+        mainStage.showModule (m);
+    };
+
     setResizable (true, true);
-    setResizeLimits (480, 320, 2560, 1600);
-    setSize (900, 560);
+    setResizeLimits (560, 380, 2560, 1600);
+    setSize (960, 600);
+
+    // Slow timer for rack retirement + header stats
+    startTimerHz (10);
 }
 
-AuClearAudioProcessorEditor::~AuClearAudioProcessorEditor() = default;
+AuClearAudioProcessorEditor::~AuClearAudioProcessorEditor()
+{
+    stopTimer();
+    setLookAndFeel (nullptr);
+}
 
-//==============================================================================
 void AuClearAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    auto bounds = getLocalBounds();
+    g.fillAll (juce::Colour (0xff16181d));
 
-    g.fillAll (bg);
-
-    // Header bar.
-    auto header = bounds.removeFromTop (48);
-    g.setColour (panel);
-    g.fillRect (header);
-
-    auto brandArea = header.reduced (16, 0);
-    g.setColour (accent);
-    g.setFont (juce::Font (juce::FontOptions (22.0f).withStyle ("Bold")));
-    g.drawText ("AuClear", brandArea, juce::Justification::centredLeft, false);
-
-    g.setColour (textLo);
-    g.setFont (juce::FontOptions (13.0f));
-    g.drawText ("v" JucePlugin_VersionString "  ·  Phase 0",
-                brandArea, juce::Justification::centredRight, false);
-
-    // Centre placeholder.
-    g.setColour (textHi);
-    g.setFont (juce::FontOptions (18.0f));
-    g.drawText ("AI audio repair, restoration & stem-remix rack",
-                bounds, juce::Justification::centred, false);
-
-    auto sub = bounds.withTrimmedTop (bounds.getHeight() / 2 + 18);
-    g.setColour (textLo);
-    g.setFont (juce::FontOptions (13.0f));
-    g.drawText ("Rack engine, AI modules and visualizations arrive in Phase 1+",
-                sub, juce::Justification::centredTop, false);
+    // Inspector placeholder (right column)
+    const int inspW = 200;
+    auto inspR = getLocalBounds().removeFromTop (getHeight() - 48 - 48)
+                                 .removeFromRight (inspW);
+    g.setColour (juce::Colour (0xff1e2128));
+    g.fillRect (inspR);
+    g.setColour (juce::Colour (kDivider));
+    g.fillRect (inspR.getX(), inspR.getY(), 1, inspR.getHeight());
+    g.setColour (juce::Colour (0xff9aa0ab));
+    g.setFont (juce::FontOptions (12.0f));
+    g.drawText ("Analyzer", inspR, juce::Justification::centred);
 }
 
 void AuClearAudioProcessorEditor::resized()
 {
-    // Phase 1: lay out header / rack / main-stage / inspector / meter-bridge.
+    auto bounds = getLocalBounds();
+
+    header.setBounds      (bounds.removeFromTop    (48));
+    meterBridge.setBounds (bounds.removeFromBottom (48));
+
+    // Right inspector (placeholder)
+    bounds.removeFromRight (200);
+
+    rackColumn.setBounds (bounds.removeFromLeft (210));
+    mainStage .setBounds (bounds);
+}
+
+void AuClearAudioProcessorEditor::timerCallback()
+{
+    processorRef.getRack().retireOldModules();
+
+    const double latMs = (double) processorRef.getLatencySamples()
+                         / processorRef.getSampleRate() * 1000.0;
+    header.setCpuLoad   (processorRef.getCpuLoad());
+    header.setLatencyMs (latMs);
 }

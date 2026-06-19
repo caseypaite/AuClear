@@ -1,11 +1,24 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "modules/GainModule.h"
 
 //==============================================================================
+juce::AudioProcessorValueTreeState::ParameterLayout
+AuClearAudioProcessor::createParameterLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    // Phase 1: global bypass only. Per-module params are managed by each module's
+    // own state and atomic members, not by APVTS, to support dynamic chains.
+    layout.add (std::make_unique<juce::AudioParameterBool> (
+        juce::ParameterID { "global_bypass", 1 }, "Global Bypass", false));
+    return layout;
+}
+
 AuClearAudioProcessor::AuClearAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts (*this, nullptr, "AuClearState", createParameterLayout())
 {
 }
 
@@ -14,38 +27,49 @@ AuClearAudioProcessor::~AuClearAudioProcessor() = default;
 //==============================================================================
 void AuClearAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    juce::ignoreUnused (sampleRate, samplesPerBlock);
-    // Phase 1+: prepare the ProcessorRack here and report summed latency.
-    setLatencySamples (0);
+    loadMeasurer.reset (sampleRate, samplesPerBlock);
+
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate       = sampleRate;
+    spec.maximumBlockSize = (juce::uint32) samplesPerBlock;
+    spec.numChannels      = (juce::uint32) getTotalNumOutputChannels();
+
+    rack.prepare (spec);
+    setLatencySamples (rack.totalLatencySamples());
 }
 
 void AuClearAudioProcessor::releaseResources()
 {
+    rack.reset();
 }
 
 bool AuClearAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    // Accept matching mono->mono or stereo->stereo layouts only.
-    const auto& mainOut = layouts.getMainOutputChannelSet();
-
-    if (mainOut != juce::AudioChannelSet::mono()
-        && mainOut != juce::AudioChannelSet::stereo())
+    const auto& out = layouts.getMainOutputChannelSet();
+    if (out != juce::AudioChannelSet::mono() && out != juce::AudioChannelSet::stereo())
         return false;
-
-    return layouts.getMainInputChannelSet() == mainOut;
+    return layouts.getMainInputChannelSet() == out;
 }
 
 void AuClearAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                           juce::MidiBuffer& midiMessages)
 {
-    juce::ignoreUnused (midiMessages);
     juce::ScopedNoDenormals noDenormals;
+    juce::AudioProcessLoadMeasurer::ScopedTimer loadTimer (loadMeasurer);
 
-    // Clear any output channels that have no matching input (defensive).
     for (auto i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    // Phase 0: transparent passthrough. The rack chain processes here in Phase 1.
+    const bool globalBypass =
+        *apvts.getRawParameterValue ("global_bypass") > 0.5f;
+
+    if (!globalBypass)
+        rack.processBlock (buffer, midiMessages);
+
+    // Keep host PDC in sync if latency changed (e.g., module added/removed).
+    const int newLat = rack.totalLatencySamples();
+    if (newLat != getLatencySamples())
+        setLatencySamples (newLat);
 }
 
 //==============================================================================
@@ -54,7 +78,7 @@ juce::AudioProcessorEditor* AuClearAudioProcessor::createEditor()
     return new AuClearAudioProcessorEditor (*this);
 }
 
-bool AuClearAudioProcessor::hasEditor() const            { return true; }
+bool AuClearAudioProcessor::hasEditor() const { return true; }
 
 //==============================================================================
 const juce::String AuClearAudioProcessor::getName() const { return JucePlugin_Name; }
@@ -66,20 +90,18 @@ double AuClearAudioProcessor::getTailLengthSeconds() const { return 0.0; }
 //==============================================================================
 int AuClearAudioProcessor::getNumPrograms()                            { return 1; }
 int AuClearAudioProcessor::getCurrentProgram()                         { return 0; }
-void AuClearAudioProcessor::setCurrentProgram (int index)              { juce::ignoreUnused (index); }
-const juce::String AuClearAudioProcessor::getProgramName (int index)   { juce::ignoreUnused (index); return {}; }
-void AuClearAudioProcessor::changeProgramName (int index, const juce::String& newName)
-{
-    juce::ignoreUnused (index, newName);
-}
+void AuClearAudioProcessor::setCurrentProgram (int)                    {}
+const juce::String AuClearAudioProcessor::getProgramName (int)         { return {}; }
+void AuClearAudioProcessor::changeProgramName (int, const juce::String&) {}
 
 //==============================================================================
 void AuClearAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // Phase 1: serialize the APVTS + rack ValueTree here. Stubbed for now so
-    // host save/restore is well-defined (empty state) from day one.
-    juce::ValueTree state ("AuClearState");
-    state.setProperty ("version", JucePlugin_VersionString, nullptr);
+    auto state = apvts.copyState();
+
+    juce::ValueTree rackTree ("Rack");
+    rack.getState (rackTree);
+    state.appendChild (rackTree, nullptr);
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -90,12 +112,26 @@ void AuClearAudioProcessor::setStateInformation (const void* data, int sizeInByt
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         auto state = juce::ValueTree::fromXml (*xml);
-        juce::ignoreUnused (state); // Phase 1: apply to APVTS + rack.
+        if (!state.isValid()) return;
+
+        apvts.replaceState (state);
+
+        auto rackTree = state.getChildWithName ("Rack");
+        if (rackTree.isValid())
+        {
+            rack.setState (rackTree, [] (ModuleType t) -> std::unique_ptr<RackModule>
+            {
+                switch (t)
+                {
+                    case ModuleType::Gain: return std::make_unique<GainModule>();
+                    default:              return nullptr;
+                }
+            });
+        }
     }
 }
 
 //==============================================================================
-// This creates new instances of the plugin.
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new AuClearAudioProcessor();

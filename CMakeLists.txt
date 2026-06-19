@@ -60,7 +60,17 @@ juce_generate_juce_header(AuClear)
 
 target_sources(AuClear PRIVATE
     src/PluginProcessor.cpp
-    src/PluginEditor.cpp)
+    src/PluginEditor.cpp
+    # Engine
+    src/engine/ProcessorRack.cpp
+    # Modules
+    src/modules/GainModule.cpp
+    # UI
+    src/ui/HeaderComponent.cpp
+    src/ui/RackModuleCard.cpp
+    src/ui/RackColumn.cpp
+    src/ui/MainStage.cpp
+    src/ui/MeterBridge.cpp)
 
 target_compile_definitions(AuClear PUBLIC
     JUCE_WEB_BROWSER=0
@@ -72,6 +82,7 @@ target_compile_definitions(AuClear PUBLIC
 target_link_libraries(AuClear
     PRIVATE
         juce::juce_audio_utils
+        juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

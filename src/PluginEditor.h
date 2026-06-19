@@ -2,31 +2,34 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+#include "ui/AuClearLookAndFeel.h"
+#include "ui/HeaderComponent.h"
+#include "ui/RackColumn.h"
+#include "ui/MainStage.h"
+#include "ui/MeterBridge.h"
 
-//==============================================================================
-/**
-    Phase 0 editor: a resizable, on-brand placeholder using the AuClear dark
-    palette from docs/04-ui-design.md. The header / rack / main-stage / inspector
-    / meter-bridge layout arrives in Phase 1.
-*/
-class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor
+class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                     private juce::Timer
 {
 public:
     explicit AuClearAudioProcessorEditor (AuClearAudioProcessor&);
     ~AuClearAudioProcessorEditor() override;
 
-    void paint (juce::Graphics&) override;
-    void resized() override;
+    void paint   (juce::Graphics&) override;
+    void resized () override;
 
 private:
+    void timerCallback() override;
+
     AuClearAudioProcessor& processorRef;
 
-    // Brand palette (see docs/04-ui-design.md).
-    const juce::Colour bg      { 0xff16181d };
-    const juce::Colour panel   { 0xff1e2128 };
-    const juce::Colour accent  { 0xff28e0c8 };
-    const juce::Colour textHi  { 0xffe8eaed };
-    const juce::Colour textLo  { 0xff9aa0ab };
+    AuClearLookAndFeel lookAndFeel;
+    HeaderComponent    header;
+    RackColumn         rackColumn;
+    MainStage          mainStage;
+    MeterBridge        meterBridge;
+
+    static constexpr juce::uint32 kDivider = 0xff2a2e37;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AuClearAudioProcessorEditor)
 };
