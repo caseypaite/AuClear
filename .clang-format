@@ -1,0 +1,15 @@
+# AuClear C++ style — JUCE-flavoured Allman braces, 4-space indent.
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+ColumnLimit: 100
+BreakBeforeBraces: Allman
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Left
+SpaceBeforeParens: Always
+AlignAfterOpenBracket: Align
+NamespaceIndentation: None
+SortIncludes: false

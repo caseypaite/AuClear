@@ -1,0 +1,93 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux,   os: ubuntu-22.04 }
+          - { name: macos,   os: macos-14 }
+          - { name: windows, os: windows-2022 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # JUCE Linux build dependencies (web browser / curl disabled in CMake).
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev libjack-jackd2-dev ladspa-sdk \
+            libfreetype-dev libx11-dev libxcomposite-dev libxcursor-dev \
+            libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # ----- pluginval: validate the VST3 (built on every platform) ---------
+      - name: Download pluginval (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -L -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Linux.zip
+          unzip -o pluginval.zip
+          chmod +x pluginval
+
+      - name: Download pluginval (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -L -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -o pluginval.zip
+
+      - name: Download pluginval (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip -OutFile pluginval.zip
+          Expand-Archive pluginval.zip -DestinationPath . -Force
+
+      - name: Validate VST3 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          VST3=$(find build -name 'AuClear.vst3' -type d | head -n1)
+          ./pluginval --strictness-level 10 --validate "$VST3"
+
+      - name: Validate VST3 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          VST3=$(find build -name 'AuClear.vst3' -type d | head -n1)
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate "$VST3"
+
+      - name: Validate VST3 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vst3 = Get-ChildItem -Recurse -Filter AuClear.vst3 build | Select-Object -First 1
+          ./pluginval.exe --strictness-level 10 --validate "$($vst3.FullName)"
+
+      - name: Upload plugin artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuClear-${{ matrix.name }}
+          path: |
+            build/**/AuClear_artefacts/**/AuClear.vst3
+            build/**/AuClear_artefacts/**/AuClear.component
+            build/**/AuClear_artefacts/**/AuClear.lv2
+          if-no-files-found: warn

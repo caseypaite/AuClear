@@ -1,0 +1,23 @@
+# Build output
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+
+# JUCE / CMake fetched deps
+/_deps/
+JuceLibraryCode/
+
+# IDE
+.idea/
+.vscode/
+*.xcodeproj/
+*.sln
+*.vcxproj*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large model assets (fetched at build/first-run — see docs/06)
+/models/*.onnx
