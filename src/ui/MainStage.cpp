@@ -1,36 +1,22 @@
 #include "MainStage.h"
+#include "panels/GainPanel.h"
+#include "panels/EQPanel.h"
+#include "panels/GatePanel.h"
+#include "panels/CompressorPanel.h"
+#include "panels/LimiterPanel.h"
+#include "panels/ReverbPanel.h"
+#include "panels/DelayPanel.h"
+#include "panels/SaturatorPanel.h"
+#include "panels/UtilityPanel.h"
 #include "../modules/GainModule.h"
-
-MainStage::MainStage ()
-{
-    // Gain knob
-    gainSlider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    gainSlider.setRange (-60.0, 12.0, 0.1);
-    gainSlider.setDoubleClickReturnValue (true, 0.0);
-    gainSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-    gainSlider.onValueChange = [this]
-    {
-        if (auto* gm = dynamic_cast<GainModule*> (currentModule))
-        {
-            gm->gainDb.store ((float)gainSlider.getValue ());
-            gainValueLabel.setText (juce::String (gainSlider.getValue (), 1) + " dB",
-                                    juce::dontSendNotification);
-        }
-    };
-
-    gainLabel.setText ("Gain", juce::dontSendNotification);
-    gainLabel.setJustificationType (juce::Justification::centred);
-    gainLabel.setColour (juce::Label::textColourId, juce::Colour (kTextLo));
-    gainLabel.setFont (juce::FontOptions (12.0f));
-
-    gainValueLabel.setJustificationType (juce::Justification::centred);
-    gainValueLabel.setColour (juce::Label::textColourId, juce::Colour (kAccent));
-    gainValueLabel.setFont (juce::Font (juce::FontOptions (13.0f).withStyle ("Bold")));
-
-    addChildComponent (gainSlider);
-    addChildComponent (gainLabel);
-    addChildComponent (gainValueLabel);
-}
+#include "../modules/ParametricEQModule.h"
+#include "../modules/GateModule.h"
+#include "../modules/CompressorModule.h"
+#include "../modules/LimiterModule.h"
+#include "../modules/ReverbModule.h"
+#include "../modules/DelayModule.h"
+#include "../modules/SaturatorModule.h"
+#include "../modules/UtilityModule.h"
 
 void MainStage::paint (juce::Graphics& g)
 {
@@ -39,53 +25,103 @@ void MainStage::paint (juce::Graphics& g)
     if (currentModule == nullptr)
     {
         g.setColour (juce::Colour (kTextLo));
-        g.setFont (juce::FontOptions (14.0f));
+        g.setFont (juce::FontOptions (14.f));
         g.drawText ("Select a module to edit it here", getLocalBounds (),
                     juce::Justification::centred);
         return;
     }
 
-    // Module panel header
-    auto header = getLocalBounds ().removeFromTop (44);
+    // Module panel header bar
+    auto hdr = getLocalBounds ().removeFromTop (44);
     g.setColour (juce::Colour (kPanel));
-    g.fillRect (header);
+    g.fillRect (hdr);
     g.setColour (juce::Colour (kDivider));
-    g.fillRect (0, header.getBottom () - 1, getWidth (), 1);
+    g.fillRect (0, hdr.getBottom () - 1, getWidth (), 1);
 
-    g.setFont (juce::Font (juce::FontOptions (16.0f).withStyle ("Bold")));
+    g.setFont (juce::Font (juce::FontOptions (16.f).withStyle ("Bold")));
     g.setColour (juce::Colour (kTextHi));
-    g.drawText (currentModule->name (), header.reduced (16, 0), juce::Justification::centredLeft);
+    g.drawText (currentModule->name (), hdr.reduced (16, 0), juce::Justification::centredLeft);
+
+    // Module type badge
+    g.setFont (juce::FontOptions (11.f));
+    g.setColour (juce::Colour (kAccent));
+    g.drawText (currentModule->uid.substring (0, 8), hdr.reduced (16, 0),
+                juce::Justification::centredRight);
 }
 
 void MainStage::resized ()
 {
-    if (!gainSlider.isVisible ())
-        return;
-
-    const int cx = getWidth () / 2;
-    const int cy = getHeight () / 2;
-
-    gainSlider.setBounds (cx - 60, cy - 70, 120, 120);
-    gainLabel.setBounds (cx - 60, cy + 54, 120, 18);
-    gainValueLabel.setBounds (cx - 60, cy + 72, 120, 18);
+    if (activePanel)
+    {
+        auto b = getLocalBounds ();
+        if (currentModule)
+            b.removeFromTop (44);
+        activePanel->setBounds (b);
+    }
 }
 
 void MainStage::showModule (RackModule* module)
 {
     currentModule = module;
 
-    gainSlider.setVisible (false);
-    gainLabel.setVisible (false);
-    gainValueLabel.setVisible (false);
-
-    if (auto* gm = dynamic_cast<GainModule*> (module))
+    if (activePanel)
     {
-        const float db = gm->gainDb.load ();
-        gainSlider.setValue (db, juce::dontSendNotification);
-        gainValueLabel.setText (juce::String (db, 1) + " dB", juce::dontSendNotification);
-        gainSlider.setVisible (true);
-        gainLabel.setVisible (true);
-        gainValueLabel.setVisible (true);
+        removeChildComponent (activePanel.get ());
+        activePanel.reset ();
+    }
+
+    if (module != nullptr)
+    {
+        switch (module->type ())
+        {
+        case ModuleType::Gain:
+            if (auto* m = dynamic_cast<GainModule*> (module))
+                activePanel = std::make_unique<GainPanel> (*m);
+            break;
+
+        case ModuleType::ParametricEQ:
+            if (auto* m = dynamic_cast<ParametricEQModule*> (module))
+                activePanel = std::make_unique<EQPanel> (*m);
+            break;
+
+        case ModuleType::Gate:
+            if (auto* m = dynamic_cast<GateModule*> (module))
+                activePanel = std::make_unique<GatePanel> (*m);
+            break;
+
+        case ModuleType::Compressor:
+            if (auto* m = dynamic_cast<CompressorModule*> (module))
+                activePanel = std::make_unique<CompressorPanel> (*m);
+            break;
+
+        case ModuleType::Limiter:
+            if (auto* m = dynamic_cast<LimiterModule*> (module))
+                activePanel = std::make_unique<LimiterPanel> (*m);
+            break;
+
+        case ModuleType::Reverb:
+            if (auto* m = dynamic_cast<ReverbModule*> (module))
+                activePanel = std::make_unique<ReverbPanel> (*m);
+            break;
+
+        case ModuleType::Delay:
+            if (auto* m = dynamic_cast<DelayModule*> (module))
+                activePanel = std::make_unique<DelayPanel> (*m);
+            break;
+
+        case ModuleType::Saturator:
+            if (auto* m = dynamic_cast<SaturatorModule*> (module))
+                activePanel = std::make_unique<SaturatorPanel> (*m);
+            break;
+
+        case ModuleType::Utility:
+            if (auto* m = dynamic_cast<UtilityModule*> (module))
+                activePanel = std::make_unique<UtilityPanel> (*m);
+            break;
+        }
+
+        if (activePanel)
+            addAndMakeVisible (*activePanel);
     }
 
     resized ();

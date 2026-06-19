@@ -1,5 +1,13 @@
 #include "RackColumn.h"
 #include "../modules/GainModule.h"
+#include "../modules/ParametricEQModule.h"
+#include "../modules/GateModule.h"
+#include "../modules/CompressorModule.h"
+#include "../modules/LimiterModule.h"
+#include "../modules/ReverbModule.h"
+#include "../modules/DelayModule.h"
+#include "../modules/SaturatorModule.h"
+#include "../modules/UtilityModule.h"
 
 RackColumn::RackColumn (ProcessorRack& r) : rack (r)
 {
@@ -10,8 +18,59 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
     addAndMakeVisible (addButton);
     addButton.onClick = [this]
     {
-        rack.insertModule (rack.numModules (), std::make_unique<GainModule> ());
-        syncWithRack ();
+        juce::PopupMenu menu;
+        menu.addItem (1, "Gain");
+        menu.addItem (2, "Parametric EQ");
+        menu.addItem (3, "Gate");
+        menu.addItem (4, "Compressor");
+        menu.addItem (5, "Limiter");
+        menu.addItem (6, "Reverb");
+        menu.addItem (7, "Delay");
+        menu.addItem (8, "Saturator");
+        menu.addItem (9, "Utility");
+
+        menu.showMenuAsync (juce::PopupMenu::Options{}.withTargetComponent (&addButton),
+                            [this] (int result)
+                            {
+                                std::unique_ptr<RackModule> mod;
+                                switch (result)
+                                {
+                                case 1:
+                                    mod = std::make_unique<GainModule> ();
+                                    break;
+                                case 2:
+                                    mod = std::make_unique<ParametricEQModule> ();
+                                    break;
+                                case 3:
+                                    mod = std::make_unique<GateModule> ();
+                                    break;
+                                case 4:
+                                    mod = std::make_unique<CompressorModule> ();
+                                    break;
+                                case 5:
+                                    mod = std::make_unique<LimiterModule> ();
+                                    break;
+                                case 6:
+                                    mod = std::make_unique<ReverbModule> ();
+                                    break;
+                                case 7:
+                                    mod = std::make_unique<DelayModule> ();
+                                    break;
+                                case 8:
+                                    mod = std::make_unique<SaturatorModule> ();
+                                    break;
+                                case 9:
+                                    mod = std::make_unique<UtilityModule> ();
+                                    break;
+                                default:
+                                    break;
+                                }
+                                if (mod)
+                                {
+                                    rack.insertModule (rack.numModules (), std::move (mod));
+                                    syncWithRack ();
+                                }
+                            });
     };
 }
 

@@ -65,6 +65,14 @@ target_sources(AuClear PRIVATE
     src/engine/ProcessorRack.cpp
     # Modules
     src/modules/GainModule.cpp
+    src/modules/ParametricEQModule.cpp
+    src/modules/GateModule.cpp
+    src/modules/CompressorModule.cpp
+    src/modules/LimiterModule.cpp
+    src/modules/ReverbModule.cpp
+    src/modules/DelayModule.cpp
+    src/modules/SaturatorModule.cpp
+    src/modules/UtilityModule.cpp
     # UI
     src/ui/HeaderComponent.cpp
     src/ui/RackModuleCard.cpp

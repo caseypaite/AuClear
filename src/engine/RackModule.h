@@ -4,7 +4,15 @@
 
 enum class ModuleType : int
 {
-    Gain
+    Gain = 0,
+    ParametricEQ = 1,
+    Gate = 2,
+    Compressor = 3,
+    Limiter = 4,
+    Reverb = 5,
+    Delay = 6,
+    Saturator = 7,
+    Utility = 8,
 };
 
 /**

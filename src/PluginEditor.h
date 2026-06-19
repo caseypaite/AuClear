@@ -7,6 +7,7 @@
 #include "ui/RackColumn.h"
 #include "ui/MainStage.h"
 #include "ui/MeterBridge.h"
+#include "ui/InspectorPanel.h"
 
 class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -27,6 +28,7 @@ class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private j
     RackColumn rackColumn;
     MainStage mainStage;
     MeterBridge meterBridge;
+    InspectorPanel inspectorPanel;
 
     static constexpr juce::uint32 kDivider = 0xff2a2e37;
 

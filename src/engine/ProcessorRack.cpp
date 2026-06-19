@@ -137,6 +137,8 @@ void ProcessorRack::prepare (const juce::dsp::ProcessSpec& spec)
     dryBuffer.setSize ((int)spec.numChannels, (int)spec.maximumBlockSize, false, false, true);
     for (auto* m : audioChain)
         m->prepare (spec);
+    specFifo.prepare (spec.sampleRate);
+    lufs.prepare (spec.sampleRate, (int)spec.numChannels);
 }
 
 void ProcessorRack::reset ()
@@ -209,6 +211,10 @@ void ProcessorRack::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
             (nch > 1) ? linearToDb (buffer.getRMSLevel (1, 0, buffer.getNumSamples ())) : v.rmsL;
         outMeters.push (v);
     }
+
+    // Spectrum analysis and loudness measurement on output
+    specFifo.pushSamples (buffer);
+    lufs.process (buffer);
 }
 
 void ProcessorRack::drainCommandQueue ()
