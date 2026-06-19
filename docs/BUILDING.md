@@ -74,5 +74,15 @@ Style is JUCE-flavoured Allman — see `.clang-format` at the repo root.
 - [x] I/O meters update in real time (30 Hz, peak hold)
 - [x] State saves and restores correctly across plugin reload
 
-Next: **Phase 2 — Classic DSP rack** (parametric EQ, compressor, limiter,
-reverb, delay, visualizations) — see [07-roadmap.md](07-roadmap.md).
+## Phase 2 exit criteria
+
+- [x] 8 classic DSP modules: ParametricEQ, Gate, Compressor, Limiter, Reverb, Delay, Saturator, Utility
+- [x] All modules accessible via categorized "+ Add" popup menu
+- [x] State save/restore for all module types
+- [x] EQ curve display — live analytic frequency response, 30 Hz repaint
+- [x] GR meters on Gate, Compressor, Limiter
+- [x] Spectrum analyzer in Inspector panel (FFT, log-freq, peak-hold)
+- [x] LUFS metering (ITU-R BS.1770-4): M/S/I + true-peak in meter bridge
+- [x] Limiter reports PDC latency via latencySamples()
+
+Next: **Phase 3 — AI stem separation** — see [07-roadmap.md](07-roadmap.md).

@@ -56,14 +56,13 @@ chain — with first-class, real-time visual feedback at every stage.
 
 ## Status
 
-**Phase 1 complete.** The rack engine spine, first DSP module, and full UI shell
-are wired up and building cleanly on all three platforms.
+**Phase 2 complete.** Full classic channel-strip rack with loudness metering.
 
 | Phase | Description | Status |
 |---|---|---|
 | **0** | CMake + JUCE scaffold; VST3/AU/LV2/Standalone; CI + pluginval | ✅ Done |
 | **1** | Rack engine, lock-free command queue, GainModule, UI shell, I/O meters | ✅ Done |
-| **2** | Classic DSP rack — EQ, gate, compressor, limiter, reverb, delay, visualizations | 🔜 Next |
+| **2** | Classic DSP rack — 8 modules, EQ curve, GR meters, spectrum, LUFS | ✅ Done |
 | **3** | Real-time AI — DeepFilterNet denoise + dereverb, hum removal | 📋 Planned |
 | **4** | Offline AI + stems — Demucs, per-stem remix UI | 📋 Planned |
 | **5** | Advanced repair + viz — spectral repair, dynamic EQ, multiband comp | 📋 Planned |
