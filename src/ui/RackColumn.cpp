@@ -10,12 +10,12 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
     addAndMakeVisible (addButton);
     addButton.onClick = [this]
     {
-        rack.insertModule (rack.numModules(), std::make_unique<GainModule>());
-        syncWithRack();
+        rack.insertModule (rack.numModules (), std::make_unique<GainModule> ());
+        syncWithRack ();
     };
 }
 
-RackColumn::~RackColumn() = default;
+RackColumn::~RackColumn () = default;
 
 void RackColumn::paint (juce::Graphics& g)
 {
@@ -23,36 +23,37 @@ void RackColumn::paint (juce::Graphics& g)
 
     // Right divider
     g.setColour (juce::Colour (kDiv));
-    g.fillRect (getWidth() - 1, 0, 1, getHeight());
+    g.fillRect (getWidth () - 1, 0, 1, getHeight ());
 }
 
-void RackColumn::resized()
+void RackColumn::resized ()
 {
-    auto b = getLocalBounds();
+    auto b = getLocalBounds ();
     addButton.setBounds (b.removeFromBottom (kAddH).reduced (8, 4));
     viewport.setBounds (b);
 
-    const int nCards     = static_cast<int> (cards.size());
-    const int containerH = juce::jmax (b.getHeight(), nCards * (kCardH + kCardGap));
-    cardsContainer.setBounds (0, 0, b.getWidth(), containerH);
+    const int nCards = static_cast<int> (cards.size ());
+    const int containerH = juce::jmax (b.getHeight (), nCards * (kCardH + kCardGap));
+    cardsContainer.setBounds (0, 0, b.getWidth (), containerH);
 
     for (int i = 0; i < nCards; ++i)
-        cards[static_cast<size_t> (i)]->setBounds (0, i * (kCardH + kCardGap), b.getWidth(), kCardH);
+        cards[static_cast<size_t> (i)]->setBounds (0, i * (kCardH + kCardGap), b.getWidth (),
+                                                   kCardH);
 }
 
-void RackColumn::syncWithRack()
+void RackColumn::syncWithRack ()
 {
     // Rebuild card list to match current rack state.
     RackModule* prevSelected = nullptr;
     for (auto& c : cards)
-        if (c->isSelected())
-            prevSelected = c->getModule();
+        if (c->isSelected ())
+            prevSelected = c->getModule ();
 
     for (auto& c : cards)
-        cardsContainer.removeChildComponent (c.get());
-    cards.clear();
+        cardsContainer.removeChildComponent (c.get ());
+    cards.clear ();
 
-    for (int i = 0; i < rack.numModules(); ++i)
+    for (int i = 0; i < rack.numModules (); ++i)
     {
         auto card = std::make_unique<RackModuleCard> (rack.getModule (i), this);
         if (rack.getModule (i) == prevSelected)
@@ -61,8 +62,8 @@ void RackColumn::syncWithRack()
         cards.push_back (std::move (card));
     }
 
-    resized();
-    repaint();
+    resized ();
+    repaint ();
 }
 
 // ---------------------------------------------------------------------------
@@ -71,9 +72,11 @@ void RackColumn::syncWithRack()
 
 void RackColumn::cardSelected (RackModuleCard* card)
 {
-    for (auto& c : cards) c->setSelected (false);
+    for (auto& c : cards)
+        c->setSelected (false);
     card->setSelected (true);
-    if (onModuleSelected) onModuleSelected (card->getModule());
+    if (onModuleSelected)
+        onModuleSelected (card->getModule ());
 }
 
 void RackColumn::cardRemoved (RackModuleCard* card)
@@ -82,49 +85,53 @@ void RackColumn::cardRemoved (RackModuleCard* card)
     if (idx >= 0)
     {
         rack.removeModule (idx);
-        syncWithRack();
+        syncWithRack ();
 
         // Notify main stage (selection lost)
-        if (onModuleSelected) onModuleSelected (nullptr);
+        if (onModuleSelected)
+            onModuleSelected (nullptr);
     }
 }
 
 void RackColumn::cardDragStarted (RackModuleCard* card, const juce::MouseEvent&)
 {
-    dragCard       = card;
+    dragCard = card;
     dragStartIndex = cardIndex (card);
 }
 
 void RackColumn::cardDragged (RackModuleCard* /*card*/, const juce::MouseEvent& e)
 {
-    if (dragCard == nullptr) return;
+    if (dragCard == nullptr)
+        return;
 
     // Convert event Y to cardsContainer coordinates
     auto relE = e.getEventRelativeTo (&cardsContainer);
-    const int yInContainer = relE.getPosition().getY();
-    const int insertIdx    = insertionIndexForY (yInContainer);
+    const int yInContainer = relE.getPosition ().getY ();
+    const int insertIdx = insertionIndexForY (yInContainer);
     applyInsertIndicators (insertIdx);
 }
 
 void RackColumn::cardDragEnded (RackModuleCard* /*card*/, const juce::MouseEvent& e)
 {
-    if (dragCard == nullptr) return;
+    if (dragCard == nullptr)
+        return;
 
     auto relE = e.getEventRelativeTo (&cardsContainer);
-    const int yInContainer = relE.getPosition().getY();
+    const int yInContainer = relE.getPosition ().getY ();
     int toIdx = insertionIndexForY (yInContainer);
 
-    clearInsertIndicators();
+    clearInsertIndicators ();
 
     if (dragStartIndex >= 0 && toIdx != dragStartIndex && toIdx != dragStartIndex + 1)
     {
         // Adjust destination for the gap left by the moving card
-        if (toIdx > dragStartIndex) --toIdx;
+        if (toIdx > dragStartIndex)
+            --toIdx;
         rack.moveModule (dragStartIndex, toIdx);
-        syncWithRack();
+        syncWithRack ();
     }
 
-    dragCard       = nullptr;
+    dragCard = nullptr;
     dragStartIndex = -1;
 }
 
@@ -135,14 +142,15 @@ void RackColumn::cardDragEnded (RackModuleCard* /*card*/, const juce::MouseEvent
 int RackColumn::insertionIndexForY (int y) const
 {
     const int stride = kCardH + kCardGap;
-    if (stride == 0) return 0;
+    if (stride == 0)
+        return 0;
     int idx = (y + stride / 2) / stride;
-    return juce::jlimit (0, static_cast<int> (cards.size()), idx);
+    return juce::jlimit (0, static_cast<int> (cards.size ()), idx);
 }
 
 void RackColumn::applyInsertIndicators (int insertIdx)
 {
-    const int nCards = static_cast<int> (cards.size());
+    const int nCards = static_cast<int> (cards.size ());
     for (int i = 0; i < nCards; ++i)
     {
         cards[static_cast<size_t> (i)]->setInsertAbove (i == insertIdx);
@@ -150,14 +158,19 @@ void RackColumn::applyInsertIndicators (int insertIdx)
     }
 }
 
-void RackColumn::clearInsertIndicators()
+void RackColumn::clearInsertIndicators ()
 {
-    for (auto& c : cards) { c->setInsertAbove (false); c->setInsertBelow (false); }
+    for (auto& c : cards)
+    {
+        c->setInsertAbove (false);
+        c->setInsertBelow (false);
+    }
 }
 
 int RackColumn::cardIndex (RackModuleCard* card) const
 {
-    for (int i = 0; i < static_cast<int> (cards.size()); ++i)
-        if (cards[static_cast<size_t> (i)].get() == card) return i;
+    for (int i = 0; i < static_cast<int> (cards.size ()); ++i)
+        if (cards[static_cast<size_t> (i)].get () == card)
+            return i;
     return -1;
 }

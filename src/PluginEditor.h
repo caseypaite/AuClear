@@ -8,26 +8,25 @@
 #include "ui/MainStage.h"
 #include "ui/MeterBridge.h"
 
-class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                     private juce::Timer
+class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
-public:
+  public:
     explicit AuClearAudioProcessorEditor (AuClearAudioProcessor&);
-    ~AuClearAudioProcessorEditor() override;
+    ~AuClearAudioProcessorEditor () override;
 
-    void paint   (juce::Graphics&) override;
+    void paint (juce::Graphics&) override;
     void resized () override;
 
-private:
-    void timerCallback() override;
+  private:
+    void timerCallback () override;
 
     AuClearAudioProcessor& processorRef;
 
     AuClearLookAndFeel lookAndFeel;
-    HeaderComponent    header;
-    RackColumn         rackColumn;
-    MainStage          mainStage;
-    MeterBridge        meterBridge;
+    HeaderComponent header;
+    RackColumn rackColumn;
+    MainStage mainStage;
+    MeterBridge meterBridge;
 
     static constexpr juce::uint32 kDivider = 0xff2a2e37;
 

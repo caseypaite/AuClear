@@ -1,48 +1,78 @@
-# Building AuClear (Phase 0)
-
-Phase 0 is an empty passthrough plugin that proves the cross-format build.
+# Building AuClear
 
 ## Prerequisites
+
 - **CMake ≥ 3.22** and a **C++20** compiler
-  (Xcode/Clang on macOS, MSVC 2022 on Windows, GCC/Clang on Linux)
-- Git (JUCE is fetched automatically via `FetchContent`)
-- **Linux only**, JUCE system deps:
-  ```bash
-  sudo apt-get install -y libasound2-dev libjack-jackd2-dev ladspa-sdk \
-    libfreetype-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
-    libxinerama-dev libxrandr-dev libxrender-dev libglu1-mesa-dev mesa-common-dev
-  ```
+  (Xcode/Clang on macOS, MSVC 2022 on Windows, GCC ≥ 12 / Clang ≥ 14 on Linux)
+- **Git** — JUCE 8.0.4 is fetched automatically via `FetchContent`
+
+### Linux deps
+
+```bash
+sudo apt-get install -y \
+  libasound2-dev libjack-jackd2-dev ladspa-sdk \
+  libfreetype-dev libfontconfig1-dev \
+  libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
+  libxinerama-dev libxrandr-dev libxrender-dev \
+  libglu1-mesa-dev mesa-common-dev \
+  libgtk-3-dev libwebkit2gtk-4.1-dev
+```
 
 ## Configure & build
+
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
-First configure clones JUCE (tag `8.0.4`, override with `-DAUCLEAR_JUCE_TAG=...`,
-or set `-DJUCE_SOURCE_DIR=/path/to/JUCE` to use a local copy offline).
 
-## Targets produced
-| Target | Platform | Output |
+**JUCE options:**
+
+| Option | Default | Effect |
 |---|---|---|
-| VST3 | all | `AuClear.vst3` |
-| AU | macOS | `AuClear.component` |
-| LV2 | all | `AuClear.lv2` |
-| Standalone | all | `AuClear` app (quickest way to eyeball the UI) |
+| `-DAUCLEAR_JUCE_TAG=<tag>` | `8.0.4` | Use a different JUCE tag |
+| `-DFETCHCONTENT_SOURCE_DIR_JUCE=/path` | — | Use a local JUCE clone (skips network fetch) |
 
-Outputs land under `build/AuClear_artefacts/<Config>/<Format>/`. With
-`COPY_PLUGIN_AFTER_BUILD` they're also copied to your user plugin folders.
+## Output locations
 
-## Validate
+Artefacts land under `build/AuClear_artefacts/Release/<Format>/`:
+
+| Format | Platforms | File |
+|---|---|---|
+| VST3 | Linux, macOS, Windows | `AuClear.vst3/` |
+| AU | macOS only | `AuClear.component/` |
+| LV2 | Linux, macOS, Windows | `AuClear.lv2/` |
+| Standalone | all | `AuClear` / `AuClear.app` / `AuClear.exe` |
+
+With `COPY_PLUGIN_AFTER_BUILD TRUE` (set in CMakeLists) they are also
+copied to your system plugin directories.
+
+## Validate with pluginval
+
 ```bash
 pluginval --strictness-level 10 --validate \
   build/AuClear_artefacts/Release/VST3/AuClear.vst3
 ```
-CI (`.github/workflows/build.yml`) runs this on Linux/macOS/Windows automatically.
 
-## Exit criteria (Phase 0)
-- [ ] Builds on all three OSes
-- [ ] VST3/AU/LV2 load in a host (Reaper, Logic, Ardour, DaVinci Resolve)
-- [ ] Passes `pluginval` at strictness 10
-- [ ] State save/restore round-trips (empty state)
+CI runs this on all three platforms automatically on every push.
 
-Next: **Phase 1 — rack engine + UI shell** (see [07-roadmap.md](07-roadmap.md)).
+## Format check
+
+```bash
+find src -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
+# auto-fix:
+find src -name '*.cpp' -o -name '*.h' | xargs clang-format -i
+```
+
+Style is JUCE-flavoured Allman — see `.clang-format` at the repo root.
+
+## Phase 1 exit criteria
+
+- [x] Builds on Linux, macOS, Windows
+- [x] VST3 passes pluginval at strictness 10 on all three platforms
+- [x] Lock-free rack engine: add / reorder / remove modules with no glitches
+- [x] GainModule active end-to-end: knob moves, audio processed
+- [x] I/O meters update in real time (30 Hz, peak hold)
+- [x] State saves and restores correctly across plugin reload
+
+Next: **Phase 2 — Classic DSP rack** (parametric EQ, compressor, limiter,
+reverb, delay, visualizations) — see [07-roadmap.md](07-roadmap.md).

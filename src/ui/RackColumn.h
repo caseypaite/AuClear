@@ -11,37 +11,36 @@
  * Handles drag-to-reorder by acting as the RackModuleCard::Listener and translating
  * pointer movements into ProcessorRack::moveModule calls.
  */
-class RackColumn : public juce::Component,
-                   public RackModuleCard::Listener
+class RackColumn : public juce::Component, public RackModuleCard::Listener
 {
-public:
+  public:
     explicit RackColumn (ProcessorRack& rack);
-    ~RackColumn() override;
+    ~RackColumn () override;
 
-    void paint   (juce::Graphics& g) override;
+    void paint (juce::Graphics& g) override;
     void resized () override;
 
     // Call after any structural change to regenerate cards.
-    void syncWithRack();
+    void syncWithRack ();
 
-    std::function<void(RackModule*)> onModuleSelected;
+    std::function<void (RackModule*)> onModuleSelected;
 
     // RackModuleCard::Listener
-    void cardSelected    (RackModuleCard* card) override;
-    void cardRemoved     (RackModuleCard* card) override;
+    void cardSelected (RackModuleCard* card) override;
+    void cardRemoved (RackModuleCard* card) override;
     void cardDragStarted (RackModuleCard* card, const juce::MouseEvent& e) override;
-    void cardDragged     (RackModuleCard* card, const juce::MouseEvent& e) override;
-    void cardDragEnded   (RackModuleCard* card, const juce::MouseEvent& e) override;
+    void cardDragged (RackModuleCard* card, const juce::MouseEvent& e) override;
+    void cardDragEnded (RackModuleCard* card, const juce::MouseEvent& e) override;
 
-    static constexpr int kCardH   = RackModuleCard::kHeight;
+    static constexpr int kCardH = RackModuleCard::kHeight;
     static constexpr int kCardGap = 1;
-    static constexpr int kAddH    = 36;
+    static constexpr int kAddH = 36;
 
-private:
-    int  insertionIndexForY (int yInContainer) const;
+  private:
+    int insertionIndexForY (int yInContainer) const;
     void applyInsertIndicators (int insertIdx);
-    void clearInsertIndicators();
-    int  cardIndex (RackModuleCard* card) const;
+    void clearInsertIndicators ();
+    int cardIndex (RackModuleCard* card) const;
 
     ProcessorRack& rack;
 
@@ -49,13 +48,13 @@ private:
     juce::Component cardsContainer;
     std::vector<std::unique_ptr<RackModuleCard>> cards;
 
-    juce::TextButton addButton { "+ Add" };
+    juce::TextButton addButton{"+ Add"};
 
     // Drag state
-    RackModuleCard* dragCard       { nullptr };
-    int             dragStartIndex { -1 };
+    RackModuleCard* dragCard{nullptr};
+    int dragStartIndex{-1};
 
-    static constexpr juce::uint32 kBg     = 0xff16181d;
+    static constexpr juce::uint32 kBg = 0xff16181d;
     static constexpr juce::uint32 kAccent = 0xff28e0c8;
-    static constexpr juce::uint32 kDiv    = 0xff2a2e37;
+    static constexpr juce::uint32 kDiv = 0xff2a2e37;
 };

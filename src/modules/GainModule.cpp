@@ -1,17 +1,17 @@
 #include "GainModule.h"
 
-GainModule::GainModule() = default;
+GainModule::GainModule () = default;
 
 void GainModule::prepare (const juce::dsp::ProcessSpec& spec)
 {
     gain.prepare (spec);
     gain.setRampDurationSeconds (0.01);
-    gain.setGainDecibels (gainDb.load());
+    gain.setGainDecibels (gainDb.load ());
 }
 
-void GainModule::reset()
+void GainModule::reset ()
 {
-    gain.reset();
+    gain.reset ();
 }
 
 void GainModule::process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -23,11 +23,11 @@ void GainModule::process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 
 void GainModule::getState (juce::ValueTree& tree) const
 {
-    tree.setProperty ("gainDb", gainDb.load(), nullptr);
+    tree.setProperty ("gainDb", gainDb.load (), nullptr);
 }
 
 void GainModule::setState (const juce::ValueTree& tree)
 {
-    gainDb.store ((float) tree.getProperty ("gainDb", 0.0f));
-    gain.setGainDecibels (gainDb.load());
+    gainDb.store ((float)tree.getProperty ("gainDb", 0.0f));
+    gain.setGainDecibels (gainDb.load ());
 }
