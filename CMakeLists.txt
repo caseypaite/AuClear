@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(AuClear VERSION 0.1.0 LANGUAGES C CXX)
+project(AuClear VERSION 0.1.1 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
 # Phase 0–3: Passthrough + DSP rack + real-time AI inference.
