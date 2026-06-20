@@ -59,6 +59,19 @@ if(NOT AUCLEAR_NO_ONNX)
         endif()
     endif()
 
+    # On Linux, FetchContent may not preserve tgz symlinks (cmake -E tar behaviour
+    # varies). Create the SONAME symlink at configure time so the linker can resolve
+    # libonnxruntime.so.1 from -L<ort>/lib during the LTO link step.
+    if(UNIX AND NOT APPLE AND NOT AUCLEAR_NO_ONNX AND DEFINED ort_SOURCE_DIR)
+        set(_ORT_SONAME_LINK "${ort_SOURCE_DIR}/lib/libonnxruntime.so.1")
+        if(NOT EXISTS "${_ORT_SONAME_LINK}")
+            execute_process(
+                COMMAND ${CMAKE_COMMAND} -E create_symlink
+                    "libonnxruntime.so.${AUCLEAR_ORT_VERSION}"
+                    "${_ORT_SONAME_LINK}")
+        endif()
+    endif()
+
     if(NOT AUCLEAR_NO_ONNX)
         # Find the actual .so/.dylib/.dll inside the extracted directory
         if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -222,14 +235,14 @@ if(NOT AUCLEAR_NO_ONNX AND AUCLEAR_ORT_TARGET)
                     COMMENT "Copying ORT library for ${_fmt}")
             endif()
 
-            # Linux: the binary links against the SONAME libonnxruntime.so.1, not the
-            # versioned filename — create the symlink so dlopen finds it next to the plugin.
+            # Linux: also copy under the SONAME name so dlopen finds libonnxruntime.so.1
+            # next to the plugin at runtime (avoids relying on symlinks in the output dir).
             if(UNIX AND NOT APPLE)
                 add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E create_symlink
-                        "libonnxruntime.so.${AUCLEAR_ORT_VERSION}"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${_ORT_LIB}"
                         "$<TARGET_FILE_DIR:AuClear_${_fmt}>/libonnxruntime.so.1"
-                    COMMENT "Creating ORT SONAME symlink for ${_fmt}")
+                    COMMENT "Copying ORT SONAME for ${_fmt}")
             endif()
         endif()
     endforeach()
