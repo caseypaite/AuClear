@@ -9,14 +9,13 @@
  *   [50 Hz] [60 Hz]  ← fundamental selector buttons
  *   [Depth knob]  [Harmonics knob]
  */
-class HumRemoverPanel : public juce::Component,
-                        public juce::Timer
+class HumRemoverPanel : public juce::Component, public juce::Timer
 {
   public:
     explicit HumRemoverPanel (HumRemoverModule& m) : mod (m)
     {
-        bindKnob (depth,     m.depth,     1.0, 60.0, 0.5, " dB");
-        bindKnob (harmonics, m.harmonics, 1.0, (double) HumRemoverModule::kMaxHarmonics, 1.0, "");
+        bindKnob (depth, m.depth, 1.0, 60.0, 0.5, " dB");
+        bindKnob (harmonics, m.harmonics, 1.0, (double)HumRemoverModule::kMaxHarmonics, 1.0, "");
 
         for (auto* k : {&depth, &harmonics})
         {
@@ -33,7 +32,7 @@ class HumRemoverPanel : public juce::Component,
         btn60.setRadioGroupId (1);
 
         const bool is50 = m.fundamental.load () < 55.f;
-        btn50.setToggleState (is50,  juce::dontSendNotification);
+        btn50.setToggleState (is50, juce::dontSendNotification);
         btn60.setToggleState (!is50, juce::dontSendNotification);
 
         btn50.onClick = [this] { mod.fundamental.store (50.f); };
@@ -60,24 +59,24 @@ class HumRemoverPanel : public juce::Component,
 
         // Knobs
         const int kw = b.getWidth () / 2;
-        depth.layout     (b.removeFromLeft (kw).reduced (4), "Depth");
+        depth.layout (b.removeFromLeft (kw).reduced (4), "Depth");
         harmonics.layout (b.reduced (4), "Harmonics");
     }
 
     void timerCallback () override
     {
-        depth.updateValue     (mod.depth.load (), " dB");
-        harmonics.updateValue ((float) mod.harmonics.load ());
+        depth.updateValue (mod.depth.load (), " dB");
+        harmonics.updateValue ((float)mod.harmonics.load ());
 
         const bool is50 = mod.fundamental.load () < 55.f;
-        btn50.setToggleState (is50,  juce::dontSendNotification);
+        btn50.setToggleState (is50, juce::dontSendNotification);
         btn60.setToggleState (!is50, juce::dontSendNotification);
     }
 
   private:
     HumRemoverModule& mod;
-    KnobGroup         depth, harmonics;
-    juce::TextButton  btn50, btn60;
+    KnobGroup depth, harmonics;
+    juce::TextButton btn50, btn60;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HumRemoverPanel)
 };

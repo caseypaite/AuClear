@@ -29,8 +29,7 @@ class OnnxSession
 
     // Load a .onnx model from an absolute path on the message thread.
     // Returns true on success; false with getLastError() set otherwise.
-    bool loadModel (const std::string& modelPath,
-                    const std::string& inputName  = "input",
+    bool loadModel (const std::string& modelPath, const std::string& inputName = "input",
                     const std::string& outputName = "output");
 
     void unloadModel ();

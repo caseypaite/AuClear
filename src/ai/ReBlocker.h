@@ -26,16 +26,16 @@ class ReBlocker
     {
         fSize = frameSize;
 
-        inBuf.assign  ((size_t) frameSize, 0.f);
-        tmpOut.assign ((size_t) frameSize, 0.f); // pre-allocate — no heap alloc in push()
+        inBuf.assign ((size_t)frameSize, 0.f);
+        tmpOut.assign ((size_t)frameSize, 0.f); // pre-allocate — no heap alloc in push()
         inHead = 0;
 
         const int ringCap = frameSize * 8; // ample for any practical host block
-        outRing.assign ((size_t) ringCap, 0.f);
+        outRing.assign ((size_t)ringCap, 0.f);
 
         // Pre-seed one silent frame → latency = frameSize samples
         outWrite = frameSize % ringCap;
-        outRead  = 0;
+        outRead = 0;
         outCount = frameSize;
     }
 
@@ -48,23 +48,23 @@ class ReBlocker
         while (remaining > 0)
         {
             const int space = fSize - inHead;
-            const int take  = std::min (remaining, space);
+            const int take = std::min (remaining, space);
 
-            std::memcpy (inBuf.data () + inHead, rd, (size_t) take * sizeof (float));
-            inHead    += take;
-            rd        += take;
+            std::memcpy (inBuf.data () + inHead, rd, (size_t)take * sizeof (float));
+            inHead += take;
+            rd += take;
             remaining -= take;
 
             if (inHead == fSize)
             {
                 fn (inBuf.data (), tmpOut.data ()); // tmpOut pre-allocated in reset()
 
-                const int cap = (int) outRing.size ();
+                const int cap = (int)outRing.size ();
                 for (int i = 0; i < fSize; ++i)
-                    outRing[(size_t) ((outWrite + i) % cap)] = tmpOut[(size_t) i];
+                    outRing[(size_t)((outWrite + i) % cap)] = tmpOut[(size_t)i];
                 outWrite = (outWrite + fSize) % cap;
                 outCount += fSize;
-                inHead   = 0;
+                inHead = 0;
             }
         }
     }
@@ -73,12 +73,12 @@ class ReBlocker
     void pop (float* dst, int n)
     {
         const int avail = std::min (n, outCount);
-        const int cap   = (int) outRing.size ();
+        const int cap = (int)outRing.size ();
 
         for (int i = 0; i < avail; ++i)
-            dst[i] = outRing[(size_t) ((outRead + i) % cap)];
+            dst[i] = outRing[(size_t)((outRead + i) % cap)];
 
-        outRead   = (outRead + avail) % cap;
+        outRead = (outRead + avail) % cap;
         outCount -= avail;
 
         if (avail < n)
@@ -88,12 +88,12 @@ class ReBlocker
     int frameSize () const { return fSize; }
 
   private:
-    int               fSize    = 480;
+    int fSize = 480;
     std::vector<float> inBuf;
-    int               inHead   = 0;
+    int inHead = 0;
     std::vector<float> outRing;
-    int               outWrite = 0;
-    int               outRead  = 0;
-    int               outCount = 0;
+    int outWrite = 0;
+    int outRead = 0;
+    int outCount = 0;
     std::vector<float> tmpOut; // scratch — allocated by reset(), reused per frame
 };

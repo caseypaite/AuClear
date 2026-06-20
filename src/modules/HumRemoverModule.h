@@ -30,7 +30,7 @@ class HumRemoverModule : public RackModule
     void reset () override;
     void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override;
 
-    ModuleType   type () const override { return ModuleType::HumRemover; }
+    ModuleType type () const override { return ModuleType::HumRemover; }
     juce::String name () const override { return "Hum Remover"; }
     void getState (juce::ValueTree& tree) const override;
     void setState (const juce::ValueTree& tree) override;
@@ -46,11 +46,11 @@ class HumRemoverModule : public RackModule
     // Two channels (L/R), up to kMaxHarmonics notches each
     std::array<std::array<BiquadFilter, kMaxHarmonics>, 2> notchFilters;
 
-    double     sampleRate{44100.0};
-    float      lastFundamental{0.f};
-    float      lastDepth{0.f};
-    int        lastHarmonics{0};
-    bool       dirty{true};
+    double sampleRate{44100.0};
+    float lastFundamental{0.f};
+    float lastDepth{0.f};
+    int lastHarmonics{0};
+    bool dirty{true};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HumRemoverModule)
 };

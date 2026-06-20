@@ -33,7 +33,7 @@ class AIEngine
     bool isLoaded () const;
 
     OnnxSession::Status getStatus () const;
-    juce::String        getStatusString () const;
+    juce::String getStatusString () const;
 
     // -----------------------------------------------------------------------
     // Audio thread
@@ -54,11 +54,10 @@ class AIEngine
     float cpuLoad () const { return cpuLoadFraction.load (std::memory_order_relaxed); }
 
   private:
-    static constexpr double kModelSR    = 48000.0;
-    static constexpr int    kModelFrame = 480; // 10 ms at 48 kHz
+    static constexpr double kModelSR = 48000.0;
+    static constexpr int kModelFrame = 480; // 10 ms at 48 kHz
 
-    void processChannel (int ch, juce::AudioBuffer<float>& buf,
-                         float strength, bool listen);
+    void processChannel (int ch, juce::AudioBuffer<float>& buf, float strength, bool listen);
 
     std::unique_ptr<OnnxSession> session;
 
@@ -66,10 +65,10 @@ class AIEngine
     struct ChannelState;
     std::vector<std::unique_ptr<ChannelState>> channels;
 
-    double hostSR         = 48000.0;
-    int    maxBlock       = 512;
-    int    cachedLatency  = kModelFrame; // updated in prepare()
-    bool   prepared       = false;
+    double hostSR = 48000.0;
+    int maxBlock = 512;
+    int cachedLatency = kModelFrame; // updated in prepare()
+    bool prepared = false;
 
     std::atomic<float> cpuLoadFraction{0.f};
 };

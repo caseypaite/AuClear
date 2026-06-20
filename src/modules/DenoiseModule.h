@@ -32,7 +32,7 @@ class DenoiseModule : public RackModule
     void process (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override;
     int latencySamples () const override { return engine.latencySamples (); }
 
-    ModuleType   type () const override { return ModuleType::Denoise; }
+    ModuleType type () const override { return ModuleType::Denoise; }
     juce::String name () const override { return "Denoise"; }
     void getState (juce::ValueTree& tree) const override;
     void setState (const juce::ValueTree& tree) override;
@@ -41,21 +41,21 @@ class DenoiseModule : public RackModule
     // Model management (message thread)
     // -----------------------------------------------------------------------
     void setModelFile (const juce::File& file);
-    juce::File   getModelFile () const { return currentModelFile; }
+    juce::File getModelFile () const { return currentModelFile; }
     juce::String getStatusString () const { return engine.getStatusString (); }
-    bool         isModelLoaded () const { return engine.isLoaded (); }
-    float        getCpuLoad () const { return engine.cpuLoad (); }
+    bool isModelLoaded () const { return engine.isLoaded (); }
+    float getCpuLoad () const { return engine.cpuLoad (); }
 
-    std::function<void()> modelStatusChanged; // called on message thread after load
+    std::function<void ()> modelStatusChanged; // called on message thread after load
 
     // -----------------------------------------------------------------------
     // Parameters (atomic — safe to write from GUI, read from audio thread)
     // -----------------------------------------------------------------------
     std::atomic<float> strength{1.0f};
-    std::atomic<bool>  listenToRemoved{false};
+    std::atomic<bool> listenToRemoved{false};
 
   private:
-    AIEngine   engine;
+    AIEngine engine;
     juce::File currentModelFile;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DenoiseModule)

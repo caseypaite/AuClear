@@ -10,8 +10,7 @@
  *   [Load Model...] [Listen to Removed]
  *   [Strength knob]
  */
-class DenoisePanel : public juce::Component,
-                     public juce::Timer
+class DenoisePanel : public juce::Component, public juce::Timer
 {
   public:
     explicit DenoisePanel (DenoiseModule& m) : mod (m)
@@ -26,19 +25,21 @@ class DenoisePanel : public juce::Component,
         loadBtn.onClick = [this]
         {
             auto chooser = std::make_shared<juce::FileChooser> (
-                "Select ONNX Model", juce::File::getSpecialLocation (
-                    juce::File::userHomeDirectory).getChildFile (".auclear/models"),
+                "Select ONNX Model",
+                juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                    .getChildFile (".auclear/models"),
                 "*.onnx");
 
-            chooser->launchAsync (juce::FileBrowserComponent::openMode
-                                | juce::FileBrowserComponent::canSelectFiles,
-                [this, chooser] (const juce::FileChooser& fc)
-                {
-                    auto results = fc.getResults ();
-                    if (results.isEmpty ()) return;
-                    mod.setModelFile (results.getFirst ());
-                    updateStatus ();
-                });
+            chooser->launchAsync (juce::FileBrowserComponent::openMode |
+                                      juce::FileBrowserComponent::canSelectFiles,
+                                  [this, chooser] (const juce::FileChooser& fc)
+                                  {
+                                      auto results = fc.getResults ();
+                                      if (results.isEmpty ())
+                                          return;
+                                      mod.setModelFile (results.getFirst ());
+                                      updateStatus ();
+                                  });
         };
         addAndMakeVisible (loadBtn);
 
@@ -46,9 +47,7 @@ class DenoisePanel : public juce::Component,
         listenBtn.setClickingTogglesState (true);
         listenBtn.setToggleState (m.listenToRemoved.load (), juce::dontSendNotification);
         listenBtn.onStateChange = [this]
-        {
-            mod.listenToRemoved.store (listenBtn.getToggleState ());
-        };
+        { mod.listenToRemoved.store (listenBtn.getToggleState ()); };
         addAndMakeVisible (listenBtn);
 
         statusLabel.setFont (juce::FontOptions (12.f));
@@ -86,7 +85,7 @@ class DenoisePanel : public juce::Component,
 
         // Buttons row
         auto btnRow = b.removeFromTop (28);
-        loadBtn.setBounds   (btnRow.removeFromLeft (130).reduced (0, 2));
+        loadBtn.setBounds (btnRow.removeFromLeft (130).reduced (0, 2));
         btnRow.removeFromLeft (10);
         listenBtn.setBounds (btnRow.removeFromLeft (160).reduced (0, 2));
         b.removeFromTop (16);
@@ -105,9 +104,9 @@ class DenoisePanel : public juce::Component,
         {
             const int pct = juce::roundToInt (load * 100.f);
             cpuLabel.setText (juce::String (pct) + "% CPU", juce::dontSendNotification);
-            const juce::Colour col = load > 1.f ? juce::Colour (0xffff4444)
-                                   : load > 0.7f ? juce::Colour (0xffffaa00)
-                                                 : textLo ();
+            const juce::Colour col = load > 1.f    ? juce::Colour (0xffff4444)
+                                     : load > 0.7f ? juce::Colour (0xffffaa00)
+                                                   : textLo ();
             cpuLabel.setColour (juce::Label::textColourId, col);
         }
         else
@@ -123,15 +122,14 @@ class DenoisePanel : public juce::Component,
         statusLabel.setText (s, juce::dontSendNotification);
 
         const bool ready = mod.isModelLoaded ();
-        statusLabel.setColour (juce::Label::textColourId,
-                               ready ? accent () : textLo ());
+        statusLabel.setColour (juce::Label::textColourId, ready ? accent () : textLo ());
         repaint ();
     }
 
     DenoiseModule& mod;
-    KnobGroup      strength;
+    KnobGroup strength;
     juce::TextButton loadBtn, listenBtn;
-    juce::Label    statusLabel, cpuLabel;
+    juce::Label statusLabel, cpuLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DenoisePanel)
 };
