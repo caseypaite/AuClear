@@ -95,7 +95,14 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: |
+          # On Linux the LTO linker resolves DT_NEEDED entries at link time via
+          # dlopen/ld-linux, not via -L paths. Point it at the ORT lib directory.
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            ORT_LIB=$(find build/_deps -name 'libonnxruntime.so.1.20.0' -printf '%h\n' 2>/dev/null | head -1)
+            [ -n "$ORT_LIB" ] && export LD_LIBRARY_PATH="${ORT_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          fi
+          cmake --build build --config Release --parallel
 
       # ── Validation ──────────────────────────────────────────────────────────
 
