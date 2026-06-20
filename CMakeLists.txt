@@ -72,13 +72,17 @@ if(NOT AUCLEAR_NO_ONNX)
 
         if(EXISTS "${_ORT_LIB}")
             add_library(ort_imported SHARED IMPORTED GLOBAL)
-            set_target_properties(ort_imported PROPERTIES
-                IMPORTED_LOCATION         "${_ORT_LIB}"
-                INTERFACE_INCLUDE_DIRECTORIES "${ort_SOURCE_DIR}/include"
-                INTERFACE_COMPILE_DEFINITIONS "AUCLEAR_HAS_ONNXRUNTIME=1")
             if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
                 set_target_properties(ort_imported PROPERTIES
-                    IMPORTED_IMPLIB "${_ORT_LIB}")
+                    IMPORTED_LOCATION             "${_ORT_DLL}"
+                    IMPORTED_IMPLIB               "${_ORT_LIB}"
+                    INTERFACE_INCLUDE_DIRECTORIES "${ort_SOURCE_DIR}/include"
+                    INTERFACE_COMPILE_DEFINITIONS "AUCLEAR_HAS_ONNXRUNTIME=1")
+            else()
+                set_target_properties(ort_imported PROPERTIES
+                    IMPORTED_LOCATION             "${_ORT_LIB}"
+                    INTERFACE_INCLUDE_DIRECTORIES "${ort_SOURCE_DIR}/include"
+                    INTERFACE_COMPILE_DEFINITIONS "AUCLEAR_HAS_ONNXRUNTIME=1")
             endif()
             set(AUCLEAR_ORT_TARGET ort_imported)
             message(STATUS "AuClear: ONNX Runtime ${AUCLEAR_ORT_VERSION} found at ${_ORT_LIB}")
@@ -187,13 +191,45 @@ target_link_libraries(AuClear
 
 # Copy ORT shared library next to each plugin format artefact so it is found at runtime.
 if(NOT AUCLEAR_NO_ONNX AND AUCLEAR_ORT_TARGET)
+    # $ORIGIN / @loader_path makes the binary look next to itself before the system paths.
+    if(APPLE)
+        set(_ORT_RPATH "@loader_path")
+    elseif(UNIX)
+        set(_ORT_RPATH "$ORIGIN")
+    endif()
+
     foreach(_fmt VST3 AU LV2 Standalone)
         if(TARGET AuClear_${_fmt})
-            add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${_ORT_LIB}"
-                    "$<TARGET_FILE_DIR:AuClear_${_fmt}>"
-                COMMENT "Copying ORT library for ${_fmt}")
+            if(NOT WIN32)
+                set_target_properties(AuClear_${_fmt} PROPERTIES
+                    BUILD_WITH_INSTALL_RPATH TRUE
+                    INSTALL_RPATH            "${_ORT_RPATH}")
+            endif()
+
+            # Copy the versioned shared library / DLL.
+            if(WIN32)
+                add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${_ORT_DLL}"
+                        "$<TARGET_FILE_DIR:AuClear_${_fmt}>"
+                    COMMENT "Copying ORT DLL for ${_fmt}")
+            else()
+                add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "${_ORT_LIB}"
+                        "$<TARGET_FILE_DIR:AuClear_${_fmt}>"
+                    COMMENT "Copying ORT library for ${_fmt}")
+            endif()
+
+            # Linux: the binary links against the SONAME libonnxruntime.so.1, not the
+            # versioned filename — create the symlink so dlopen finds it next to the plugin.
+            if(UNIX AND NOT APPLE)
+                add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E create_symlink
+                        "libonnxruntime.so.${AUCLEAR_ORT_VERSION}"
+                        "$<TARGET_FILE_DIR:AuClear_${_fmt}>/libonnxruntime.so.1"
+                    COMMENT "Creating ORT SONAME symlink for ${_fmt}")
+            endif()
         endif()
     endforeach()
 endif()
