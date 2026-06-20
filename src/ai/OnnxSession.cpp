@@ -5,7 +5,10 @@
 #endif
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -29,6 +32,12 @@ struct OnnxSession::Impl
     std::vector<float> inBuf;
     std::vector<float> outBuf;
     std::array<int64_t, 2> shape{}; // {1, fSize}
+
+    // Atomic "safe to call runFrame" flag. Set by makeReady() AFTER loadModel()
+    // + preWarm() complete so the audio thread never races on session/inBuf/outBuf.
+    // Cleared at the START of unloadModel() so the audio thread stops using the
+    // session before we free it.
+    std::atomic<bool> ready{false};
 };
 
 // ---------------------------------------------------------------------------
@@ -102,6 +111,12 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
 
 void OnnxSession::unloadModel ()
 {
+    // Clear the audio-thread flag first so runFrame() returns false immediately.
+    // The store with seq_cst + the sleep below gives any in-progress runFrame()
+    // time to exit before we free the session.
+    pImpl->ready.store (false, std::memory_order_seq_cst);
+    std::this_thread::sleep_for (std::chrono::milliseconds (50)); // > one audio-callback at any practical block size
+
 #if AUCLEAR_HAS_ONNXRUNTIME
     pImpl->session.reset ();
 #endif
@@ -112,7 +127,12 @@ void OnnxSession::unloadModel ()
 
 bool OnnxSession::isLoaded () const
 {
-    return pImpl->status == Status::Ready;
+    return pImpl->ready.load (std::memory_order_acquire);
+}
+
+void OnnxSession::makeReady ()
+{
+    pImpl->ready.store (true, std::memory_order_release);
 }
 
 OnnxSession::Status OnnxSession::getStatus () const
@@ -135,8 +155,12 @@ bool OnnxSession::runFrame (const float* in, float* out)
     (void)out;
     return false;
 #else
+    // Acquire-load: if ready is false the session pointer may be null or stale.
+    if (! pImpl->ready.load (std::memory_order_acquire))
+        return false;
+
     auto& impl = *pImpl;
-    if (!impl.session)
+    if (! impl.session)
         return false;
 
     std::memcpy (impl.inBuf.data (), in, (size_t)impl.fSize * sizeof (float));

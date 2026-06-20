@@ -50,11 +50,14 @@ AIEngine::~AIEngine () = default;
 
 bool AIEngine::loadModel (const juce::File& file)
 {
-    if (!file.existsAsFile ())
+    if (! file.existsAsFile ())
         return false;
     const bool ok = session->loadModel (file.getFullPathName ().toStdString ());
     if (ok)
-        session->preWarm ();
+    {
+        session->preWarm ();   // JIT compile on message thread before audio thread sees the model
+        session->makeReady (); // release-store: audio thread may now call runFrame()
+    }
     return ok;
 }
 
@@ -151,17 +154,11 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
         }
     }
 
-    if (!session->isLoaded ())
-    {
-        // Pop dry from delay (keeps latency consistent even without a model).
-        const int cap = (int)cs.dryRing.size ();
-        for (int i = 0; i < n; ++i)
-        {
-            wr[i] = cs.dryRing[(size_t)(cs.dryRead % cap)];
-            cs.dryRead = (cs.dryRead + 1) % cap;
-        }
-        return;
-    }
+    // Always run the full pipeline so the ReBlocker and resamplers stay warmed up.
+    // When no model is loaded, runFrame() returns false and the reBlocker callback
+    // copies input → output (identity), maintaining the same latency with no glitch.
+    // This avoids the click that would occur if we short-circuited here and then
+    // switched to the inference path mid-stream when the model became available.
 
     // 2. Resample host→model SR if needed
     const double downRatio = hostSR / kModelSR;

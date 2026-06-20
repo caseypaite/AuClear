@@ -48,6 +48,10 @@ class OnnxSession
     // Run a dummy frame to trigger JIT compilation before the first real call.
     bool preWarm ();
 
+    // Signal to the audio thread that the model is ready for runFrame().
+    // Call this AFTER loadModel() + preWarm() on the message thread.
+    void makeReady ();
+
   private:
     struct Impl;
     std::unique_ptr<Impl> pImpl;
