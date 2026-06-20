@@ -33,14 +33,35 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     void setStateInformation (const void* data, int sizeInBytes) override;
 
     ProcessorRack& getRack () { return rack; }
-
-    // Rough CPU load fraction — updated each processBlock from the load measurer.
     float getCpuLoad () const { return loadMeasurer.getLoadAsProportion (); }
+
+    // ─── Media player (standalone mode) ──────────────────────────────────────
+    // loadMediaFile: call on message thread. Returns true if the file was opened.
+    // When a file is loaded the transport replaces device-input audio in processBlock.
+    bool loadMediaFile (const juce::File& file);
+    void unloadMediaFile ();
+
+    bool isMediaFileLoaded () const noexcept
+    {
+        return mediaFileLoaded.load (std::memory_order_relaxed);
+    }
+
+    juce::AudioTransportSource& getTransportSource () { return transportSource; }
+    juce::AudioFormatManager& getFormatManager () { return formatManager; }
 
   private:
     ProcessorRack rack;
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessLoadMeasurer loadMeasurer;
+
+    // Transport source — message thread sets it up; audio thread reads via getNextAudioBlock.
+    // AudioTransportSource uses an internal SpinLock so setSource() and getNextAudioBlock()
+    // are safe to call from different threads.
+    juce::AudioFormatManager formatManager;
+    juce::AudioTransportSource transportSource;
+    std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
+    std::atomic<bool> mediaFileLoaded{false};
+    std::atomic<bool> sourceIsMono{false};
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout ();
 

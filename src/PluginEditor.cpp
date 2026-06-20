@@ -1,22 +1,5 @@
 #include "PluginEditor.h"
 
-// Thin DocumentWindow subclass so closeButtonPressed() hides rather than deletes.
-struct FileProcessorDocWindow : public juce::DocumentWindow
-{
-    explicit FileProcessorDocWindow (AuClearAudioProcessor& p)
-        : juce::DocumentWindow ("AuClear \xe2\x80\x94 Process File", juce::Colour (0xff1a1d24),
-                                juce::DocumentWindow::closeButton)
-    {
-        setContentOwned (new FileProcessorPanel (p), true);
-        setResizable (true, false);
-        setUsingNativeTitleBar (true);
-        centreWithSize (560, 330);
-        setVisible (true);
-    }
-
-    void closeButtonPressed () override { setVisible (false); }
-};
-
 AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p), rackColumn (p.getRack ()),
       meterBridge (p.getRack ()), inspectorPanel (p.getRack ().spectrumFifo (), p.getSampleRate ())
@@ -33,16 +16,14 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
 
     if (juce::JUCEApplicationBase::isStandaloneApp ())
     {
-        addAndMakeVisible (fileProcessorButton);
-        fileProcessorButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2a2e37));
-        fileProcessorButton.setColour (juce::TextButton::textColourOffId,
-                                       juce::Colour (0xff28e0c8));
-        fileProcessorButton.onClick = [this] { toggleFileProcessorWindow (); };
+        mediaPlayerPanel = std::make_unique<MediaPlayerPanel> (p);
+        addAndMakeVisible (*mediaPlayerPanel);
     }
 
     setResizable (true, true);
+    const int h = juce::JUCEApplicationBase::isStandaloneApp () ? 620 + kPlayerHeight : 620;
     setResizeLimits (600, 400, 2560, 1600);
-    setSize (1000, 620);
+    setSize (1000, h);
 
     startTimerHz (10);
 }
@@ -50,7 +31,7 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
 AuClearAudioProcessorEditor::~AuClearAudioProcessorEditor ()
 {
     stopTimer ();
-    fileProcessorWindow.reset ();
+    mediaPlayerPanel.reset (); // unloads transport before anything else tears down
     setLookAndFeel (nullptr);
 }
 
@@ -63,12 +44,10 @@ void AuClearAudioProcessorEditor::resized ()
 {
     auto bounds = getLocalBounds ();
 
-    auto headerBounds = bounds.removeFromTop (48);
-    if (juce::JUCEApplicationBase::isStandaloneApp ())
-    {
-        fileProcessorButton.setBounds (headerBounds.removeFromRight (130).reduced (6, 8));
-    }
-    header.setBounds (headerBounds);
+    header.setBounds (bounds.removeFromTop (48));
+
+    if (mediaPlayerPanel)
+        mediaPlayerPanel->setBounds (bounds.removeFromBottom (kPlayerHeight));
 
     meterBridge.setBounds (bounds.removeFromBottom (48));
 
@@ -81,23 +60,6 @@ void AuClearAudioProcessorEditor::resized ()
     mainStage.setBounds (bounds);
 }
 
-void AuClearAudioProcessorEditor::toggleFileProcessorWindow ()
-{
-    if (fileProcessorWindow != nullptr && fileProcessorWindow->isVisible ())
-    {
-        fileProcessorWindow->setVisible (false);
-        return;
-    }
-
-    if (fileProcessorWindow == nullptr)
-        fileProcessorWindow = std::make_unique<FileProcessorDocWindow> (processorRef);
-    else
-    {
-        fileProcessorWindow->setVisible (true);
-        fileProcessorWindow->toFront (true);
-    }
-}
-
 void AuClearAudioProcessorEditor::timerCallback ()
 {
     processorRef.getRack ().retireOldModules ();
@@ -107,6 +69,5 @@ void AuClearAudioProcessorEditor::timerCallback ()
     header.setCpuLoad (processorRef.getCpuLoad ());
     header.setLatencyMs (latMs);
 
-    // Update inspector sample rate if it changed (e.g., after host changes it)
     inspectorPanel.setSampleRate (processorRef.getSampleRate ());
 }
