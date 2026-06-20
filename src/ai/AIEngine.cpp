@@ -12,18 +12,15 @@ struct AIEngine::ChannelState
     juce::LagrangeInterpolator downSampler; // host SR → model SR
     juce::LagrangeInterpolator upSampler;   // model SR → host SR
 
-    // Scratch buffers at model SR (allocated once in prepare()).
+    // Scratch buffers — all allocated once in reset(), never on the audio thread.
     std::vector<float> modelIn;
     std::vector<float> modelOut;
+    std::vector<float> wetHost; // host-SR output of the upsample stage
 
     // Dry delay ring: aligns original with the re-blocked wet output.
     std::vector<float> dryRing;
     int dryWrite = 0;
     int dryRead  = 0;
-
-    // Resampler sub-sample position (maintained between blocks for continuity)
-    double downPos = 0.0;
-    double upPos   = 0.0;
 
     void reset (double hostSR, int maxHostBlock, int modelFrameSize, int totalLatencyHostSamples)
     {
@@ -31,14 +28,13 @@ struct AIEngine::ChannelState
 
         downSampler.reset ();
         upSampler.reset ();
-        downPos = 0.0;
-        upPos   = 0.0;
 
         // Worst-case model-SR samples per host block (with headroom).
         const int maxModelSamples =
             (int) std::ceil ((double) maxHostBlock * AIEngine::kModelSR / hostSR) + 16;
         modelIn.assign  ((size_t) maxModelSamples, 0.f);
         modelOut.assign ((size_t) maxModelSamples, 0.f);
+        wetHost.assign  ((size_t) maxHostBlock,    0.f); // exact host-block size
 
         // Dry delay ring must hold at least totalLatencyHostSamples.
         const int ringLen = juce::nextPowerOfTwo (totalLatencyHostSamples * 2 + maxHostBlock);
@@ -191,16 +187,15 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf,
 
     cs.reBlocker.pop (cs.modelOut.data (), nModel);
 
-    // 4. Resample model→host SR
-    std::vector<float> wetHost ((size_t) n);
+    // 4. Resample model→host SR (into pre-allocated cs.wetHost — no heap alloc)
     if (std::abs (hostSR - kModelSR) < 0.5)
     {
-        std::memcpy (wetHost.data (), cs.modelOut.data (), (size_t) n * sizeof (float));
+        std::memcpy (cs.wetHost.data (), cs.modelOut.data (), (size_t) n * sizeof (float));
     }
     else
     {
         const double upRatio = kModelSR / hostSR; // < 1 when upsampling to lower SR
-        cs.upSampler.process (upRatio, cs.modelOut.data (), wetHost.data (), n);
+        cs.upSampler.process (upRatio, cs.modelOut.data (), cs.wetHost.data (), n);
     }
 
     // 5. Mix or listen-to-removed
@@ -210,7 +205,7 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf,
         const float dry = cs.dryRing[(size_t) (cs.dryRead % cap)];
         cs.dryRead = (cs.dryRead + 1) % cap;
 
-        const float wet = wetHost[(size_t) i];
+        const float wet = cs.wetHost[(size_t) i];
 
         if (listen)
             wr[i] = dry - wet; // subtract to hear what was removed

@@ -26,7 +26,8 @@ class ReBlocker
     {
         fSize = frameSize;
 
-        inBuf.assign ((size_t) frameSize, 0.f);
+        inBuf.assign  ((size_t) frameSize, 0.f);
+        tmpOut.assign ((size_t) frameSize, 0.f); // pre-allocate — no heap alloc in push()
         inHead = 0;
 
         const int ringCap = frameSize * 8; // ample for any practical host block
@@ -56,8 +57,7 @@ class ReBlocker
 
             if (inHead == fSize)
             {
-                tmpOut.assign ((size_t) fSize, 0.f);
-                fn (inBuf.data (), tmpOut.data ());
+                fn (inBuf.data (), tmpOut.data ()); // tmpOut pre-allocated in reset()
 
                 const int cap = (int) outRing.size ();
                 for (int i = 0; i < fSize; ++i)
