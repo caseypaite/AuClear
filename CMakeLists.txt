@@ -163,6 +163,7 @@ target_sources(AuClear PRIVATE
     src/PluginEditor.cpp
     # Engine
     src/engine/ProcessorRack.cpp
+    src/engine/ModuleFactory.cpp
     # DSP modules
     src/modules/GainModule.cpp
     src/modules/ParametricEQModule.cpp
@@ -178,6 +179,8 @@ target_sources(AuClear PRIVATE
     src/ai/AIEngine.cpp
     src/modules/DenoiseModule.cpp
     src/modules/HumRemoverModule.cpp
+    # File I/O (standalone only)
+    src/io/FileProcessor.cpp
     # UI
     src/ui/HeaderComponent.cpp
     src/ui/RackModuleCard.cpp

@@ -8,6 +8,7 @@
 #include "ui/MainStage.h"
 #include "ui/MeterBridge.h"
 #include "ui/InspectorPanel.h"
+#include "ui/FileProcessorPanel.h"
 
 class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -20,6 +21,7 @@ class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private j
 
   private:
     void timerCallback () override;
+    void toggleFileProcessorWindow ();
 
     AuClearAudioProcessor& processorRef;
 
@@ -29,6 +31,10 @@ class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private j
     MainStage mainStage;
     MeterBridge meterBridge;
     InspectorPanel inspectorPanel;
+
+    // Standalone-only: file processing button + floating window
+    juce::TextButton fileProcessorButton{"Process File\xe2\x80\xa6"}; // "Process File…"
+    std::unique_ptr<juce::DocumentWindow> fileProcessorWindow;
 
     static constexpr juce::uint32 kDivider = 0xff2a2e37;
 
