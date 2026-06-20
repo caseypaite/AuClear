@@ -82,6 +82,7 @@ if(NOT AUCLEAR_NO_ONNX)
                 set_target_properties(ort_imported PROPERTIES
                     IMPORTED_LOCATION             "${_ORT_LIB}"
                     INTERFACE_INCLUDE_DIRECTORIES "${ort_SOURCE_DIR}/include"
+                    INTERFACE_LINK_DIRECTORIES    "${ort_SOURCE_DIR}/lib"
                     INTERFACE_COMPILE_DEFINITIONS "AUCLEAR_HAS_ONNXRUNTIME=1")
             endif()
             set(AUCLEAR_ORT_TARGET ort_imported)

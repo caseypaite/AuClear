@@ -119,8 +119,12 @@ jobs:
         if: matrix.validate == 'au'
         run: |
           AU=$(find build -name 'AuClear.component' -type d | head -n1)
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -r "$AU" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
           ./pluginval.app/Contents/MacOS/pluginval \
-            --strictness-level 5 --validate "$AU"
+            --strictness-level 5 \
+            --validate ~/Library/Audio/Plug-Ins/Components/AuClear.component
 
       # Windows: pluginval validates the VST3.
       - name: Download pluginval (Windows)
