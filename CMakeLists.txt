@@ -106,12 +106,26 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(JUCE)
 
 # --- Plugin target ----------------------------------------------------------
+# Default format set per platform; override with -DAUCLEAR_FORMATS="VST3;LV2;Standalone"
+set(AUCLEAR_FORMATS "" CACHE STRING
+    "Semicolon-separated plugin formats to build (empty = platform default)")
+if(NOT AUCLEAR_FORMATS)
+    if(APPLE)
+        set(AUCLEAR_FORMATS "AU;Standalone")
+    elseif(WIN32)
+        set(AUCLEAR_FORMATS "VST3;Standalone")
+    else()
+        set(AUCLEAR_FORMATS "LV2;Standalone")
+    endif()
+endif()
+message(STATUS "AuClear: building formats — ${AUCLEAR_FORMATS}")
+
 juce_add_plugin(AuClear
     COMPANY_NAME            "AuClear"
     BUNDLE_ID               "com.auclear.auclear"
     PLUGIN_MANUFACTURER_CODE Aucl          # 4 chars, exactly one uppercase
     PLUGIN_CODE             Aucr           # 4 chars, exactly one uppercase
-    FORMATS                 VST3 AU LV2 Standalone
+    FORMATS                 ${AUCLEAR_FORMATS}
     PRODUCT_NAME            "AuClear"
     DESCRIPTION             "AI audio repair, restoration and stem-remix rack"
     IS_SYNTH                FALSE
@@ -173,7 +187,7 @@ target_link_libraries(AuClear
 
 # Copy ORT shared library next to each plugin format artefact so it is found at runtime.
 if(NOT AUCLEAR_NO_ONNX AND AUCLEAR_ORT_TARGET)
-    foreach(_fmt VST3 Standalone)
+    foreach(_fmt VST3 AU LV2 Standalone)
         if(TARGET AuClear_${_fmt})
             add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different

@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Lint: clang-format check (fast, runs first so formatting problems block early)
+# Lint: clang-format check (fast, blocks early on formatting issues)
 # ─────────────────────────────────────────────────────────────────────────────
 jobs:
   lint:
@@ -30,40 +30,52 @@ jobs:
             | xargs clang-format --dry-run --Werror
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Build + pluginval: Linux / macOS / Windows
+# Build matrix:
+#   Linux   → LV2  + Standalone  (validated with lv2lint)
+#   macOS   → AU   + Standalone  (validated with pluginval)
+#   Windows → VST3 + Standalone  (validated with pluginval)
+#
+# ONNX Runtime is fetched automatically and cached in build/_deps.
 # ─────────────────────────────────────────────────────────────────────────────
   build:
-    name: Build ${{ matrix.name }}
+    name: ${{ matrix.name }}
     needs: lint
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Linux
+          - name: "Linux — LV2 + Standalone"
             os: ubuntu-22.04
+            artifact-prefix: Linux
             cache-key: linux
-          - name: macOS
+            validate: lv2
+
+          - name: "macOS — AU + Standalone"
             os: macos-14
+            artifact-prefix: macOS
             cache-key: macos
-          - name: Windows
+            validate: au
+
+          - name: "Windows — VST3 + Standalone"
             os: windows-2022
+            artifact-prefix: Windows
             cache-key: windows
+            validate: vst3
 
     steps:
       - uses: actions/checkout@v4
 
-      # Cache the FetchContent JUCE clone so subsequent runs skip the download.
-      # Key includes the JUCE tag; bump when the tag changes in CMakeLists.txt.
-      - name: Cache JUCE source
+      # Cache JUCE clone + ONNX Runtime download together.
+      # Key includes CMakeLists.txt hash so a version bump invalidates the cache.
+      - name: Cache deps (JUCE + ORT)
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: juce-${{ matrix.cache-key }}-8.0.4-${{ hashFiles('CMakeLists.txt') }}
-          restore-keys: |
-            juce-${{ matrix.cache-key }}-8.0.4-
-            juce-${{ matrix.cache-key }}-
+          key: deps-${{ matrix.cache-key }}-${{ hashFiles('CMakeLists.txt') }}
+          restore-keys: deps-${{ matrix.cache-key }}-
 
+      # ── Platform deps ───────────────────────────────────────────────────────
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
@@ -74,41 +86,46 @@ jobs:
             libx11-dev libxcomposite-dev libxcursor-dev libxext-dev \
             libxinerama-dev libxrandr-dev libxrender-dev \
             libglu1-mesa-dev mesa-common-dev \
-            libgtk-3-dev libwebkit2gtk-4.1-dev
+            libgtk-3-dev libwebkit2gtk-4.1-dev \
+            lv2-dev lv2lint
 
+      # ── Configure & build ───────────────────────────────────────────────────
+      # CMakeLists.txt auto-selects formats per platform (LV2/AU/VST3 + Standalone).
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      # ── pluginval ──────────────────────────────────────────────────────────
-      - name: Cache pluginval (Linux)
-        if: runner.os == 'Linux'
-        uses: actions/cache@v4
-        with:
-          path: pluginval
-          key: pluginval-linux-latest-v1
+      # ── Validation ──────────────────────────────────────────────────────────
 
-      - name: Download pluginval (Linux)
-        if: runner.os == 'Linux'
+      # Linux: lv2lint static analysis of the bundle TTL files.
+      # -M noload skips DSP load (no audio device required in CI).
+      - name: Validate LV2 (Linux)
+        if: matrix.validate == 'lv2'
         run: |
-          if [ ! -f pluginval ]; then
-            curl -fsSL -o pluginval.zip \
-              https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Linux.zip
-            unzip -o pluginval.zip
-          fi
-          chmod +x pluginval
+          LV2=$(find build -name 'AuClear.lv2' -type d | head -n1)
+          LV2_PATH="$(dirname "$LV2")" lv2lint \
+            -M noload "https://auclear.com/plugins/auclear"
 
+      # macOS: pluginval validates the AU component.
       - name: Download pluginval (macOS)
-        if: runner.os == 'macOS'
+        if: matrix.validate == 'au'
         run: |
           curl -fsSL -o pluginval.zip \
             https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
-          unzip -o pluginval.zip
+          unzip -q -o pluginval.zip
 
+      - name: Validate AU (macOS)
+        if: matrix.validate == 'au'
+        run: |
+          AU=$(find build -name 'AuClear.component' -type d | head -n1)
+          ./pluginval.app/Contents/MacOS/pluginval \
+            --strictness-level 5 --validate "$AU"
+
+      # Windows: pluginval validates the VST3.
       - name: Download pluginval (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.validate == 'vst3'
         shell: pwsh
         run: |
           Invoke-WebRequest `
@@ -116,39 +133,54 @@ jobs:
             -OutFile pluginval.zip
           Expand-Archive pluginval.zip -DestinationPath . -Force
 
-      - name: Validate VST3 (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          VST3=$(find build -name 'AuClear.vst3' -type d | head -n1)
-          ./pluginval --strictness-level 10 --validate "$VST3"
-
-      - name: Validate VST3 (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          VST3=$(find build -name 'AuClear.vst3' -type d | head -n1)
-          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate "$VST3"
-
       - name: Validate VST3 (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.validate == 'vst3'
         shell: pwsh
         run: |
-          $vst3 = Get-ChildItem -Recurse -Filter AuClear.vst3 build | Select-Object -First 1
-          ./pluginval.exe --strictness-level 10 --validate "$($vst3.FullName)"
+          $vst3 = Get-ChildItem -Recurse -Filter AuClear.vst3 build `
+                  | Select-Object -First 1
+          .\pluginval.exe --strictness-level 10 --validate "$($vst3.FullName)"
 
-      # ── Artifacts ─────────────────────────────────────────────────────────
-      - name: Upload plugin artifacts
+      # ── Artifacts ───────────────────────────────────────────────────────────
+      # Each platform uploads its primary plugin format + the Standalone binary.
+      # The ORT shared library is copied next to each artifact by CMake POST_BUILD.
+
+      - name: Upload artifacts (Linux)
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: AuClear-${{ matrix.name }}-${{ github.sha }}
+          name: AuClear-Linux-${{ github.sha }}
           path: |
-            build/**/AuClear_artefacts/**/*.vst3
-            build/**/AuClear_artefacts/**/*.component
-            build/**/AuClear_artefacts/**/*.lv2
+            build/**/AuClear_artefacts/Release/LV2/
+            build/**/AuClear_artefacts/Release/Standalone/AuClear
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: error
+
+      - name: Upload artifacts (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuClear-macOS-${{ github.sha }}
+          path: |
+            build/**/AuClear_artefacts/Release/AU/
+            build/**/AuClear_artefacts/Release/Standalone/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload artifacts (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: AuClear-Windows-${{ github.sha }}
+          path: |
+            build/**/AuClear_artefacts/Release/VST3/
+            build/**/AuClear_artefacts/Release/Standalone/
+          retention-days: 14
+          if-no-files-found: error
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Release: create a draft GitHub Release when a v* tag is pushed
+# Release: create a draft GitHub Release when a v* tag is pushed.
+# All three platform zips are attached automatically.
 # ─────────────────────────────────────────────────────────────────────────────
   release:
     name: Draft release
@@ -167,10 +199,10 @@ jobs:
       - name: Zip artifacts per platform
         run: |
           cd artifacts
-          for dir in AuClear-Linux-* AuClear-macOS-* AuClear-Windows-*; do
+          for platform in Linux macOS Windows; do
+            dir="AuClear-${platform}-${{ github.sha }}"
             [ -d "$dir" ] || continue
-            platform="${dir%%-*-*}" # e.g. "AuClear-Linux"
-            zip -r "../${platform}-${{ github.ref_name }}.zip" "$dir"
+            zip -r "../AuClear-${platform}-${{ github.ref_name }}.zip" "$dir"
           done
           ls -lh ../*.zip
 
