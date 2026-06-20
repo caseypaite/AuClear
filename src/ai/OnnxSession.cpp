@@ -5,6 +5,7 @@
 #endif
 
 #include <array>
+#include <string>
 #include <vector>
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,12 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
         opts.SetInterOpNumThreads (1);
         opts.SetGraphOptimizationLevel (GraphOptimizationLevel::ORT_ENABLE_ALL);
 
+#ifdef _WIN32
+        std::wstring wpath (modelPath.begin (), modelPath.end ());
+        impl.session = std::make_unique<Ort::Session> (impl.env, wpath.c_str (), opts);
+#else
         impl.session = std::make_unique<Ort::Session> (impl.env, modelPath.c_str (), opts);
+#endif
         impl.inputName = inputName;
         impl.outputName = outputName;
 
