@@ -94,15 +94,21 @@ jobs:
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build
+      # On Linux, GCC's LTO linker resolves DT_NEEDED SONAMEs through ldconfig,
+      # not -L paths. Register ORT in the system library cache so the linker can
+      # find libonnxruntime.so.1 when linking the shared-module (LV2) target.
+      - name: Register ORT with ldconfig (Linux)
+        if: runner.os == 'Linux'
         run: |
-          # On Linux the LTO linker resolves DT_NEEDED entries at link time via
-          # dlopen/ld-linux, not via -L paths. Point it at the ORT lib directory.
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            ORT_LIB=$(find build/_deps -name 'libonnxruntime.so.1.20.0' -printf '%h\n' 2>/dev/null | head -1)
-            [ -n "$ORT_LIB" ] && export LD_LIBRARY_PATH="${ORT_LIB}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          ORT_LIB=$(find build/_deps -name 'libonnxruntime.so.1.20.0' 2>/dev/null | head -1)
+          if [ -n "$ORT_LIB" ]; then
+            sudo cp "$ORT_LIB" /usr/local/lib/
+            sudo ln -sf /usr/local/lib/libonnxruntime.so.1.20.0 /usr/local/lib/libonnxruntime.so.1
+            sudo ldconfig
           fi
-          cmake --build build --config Release --parallel
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
 
       # ── Validation ──────────────────────────────────────────────────────────
 
