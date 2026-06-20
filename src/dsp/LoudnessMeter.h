@@ -71,6 +71,7 @@ class LoudnessMeter
         integratedSum = 0.0;
         integratedCount = 0;
         integratedGated.clear ();
+        integratedGated.reserve (kMaxGatedBlocks); // pre-alloc; no malloc on audio thread
         truePeak.store (-100.f);
         momentaryLUFS.store (-70.f);
         shortTermLUFS.store (-70.f);
@@ -104,7 +105,7 @@ class LoudnessMeter
                 meanSq /= static_cast<float> (nCh);
 
             blockBuf[static_cast<size_t> (blockPos)] = meanSq;
-            if (++blockPos >= hopSamples)
+            if (++blockPos >= blockSamples)
             {
                 onHop ();
                 // Shift block buffer: keep last (blockSamples - hopSamples) samples
@@ -180,7 +181,8 @@ class LoudnessMeter
         {
             integratedSum += std::pow (10.0, static_cast<double> (lufs) / 10.0);
             ++integratedCount;
-            integratedGated.push_back (lufs);
+            if (integratedGated.size () < kMaxGatedBlocks)
+                integratedGated.push_back (lufs);
 
             if (integratedCount > 0)
             {
@@ -209,6 +211,9 @@ class LoudnessMeter
 
         ++histIdx;
     }
+
+    // 10 hops/s × 3600 s = 36 000 blocks ≈ 1 hour of content
+    static constexpr std::size_t kMaxGatedBlocks = 36000;
 
     double sr{48000.0};
     int nCh{2};
