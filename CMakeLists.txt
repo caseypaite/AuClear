@@ -220,6 +220,13 @@ if(NOT AUCLEAR_NO_ONNX AND AUCLEAR_ORT_TARGET)
                     INSTALL_RPATH            "${_ORT_RPATH}")
             endif()
 
+            # ORT is PRIVATE to AuClear so INTERFACE_LINK_DIRECTORIES doesn't reach
+            # format targets. Add it explicitly so the LTO shared-module linker can
+            # find libonnxruntime.so.1 by SONAME in the ORT lib directory.
+            if(UNIX AND NOT APPLE)
+                target_link_directories(AuClear_${_fmt} PRIVATE "${ort_SOURCE_DIR}/lib")
+            endif()
+
             # Copy the versioned shared library / DLL.
             if(WIN32)
                 add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
