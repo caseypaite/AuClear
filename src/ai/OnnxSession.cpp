@@ -190,9 +190,36 @@ bool OnnxSession::runFrame (const float* in, float* out)
 
 bool OnnxSession::preWarm ()
 {
-    if (!isLoaded ())
+    // preWarm() is called on the message thread before makeReady(), so the
+    // audio-thread-facing ready flag is not yet set.  Check status directly
+    // and bypass the ready guard in runFrame() by calling the ORT session inline.
+#if !AUCLEAR_HAS_ONNXRUNTIME
+    return false;
+#else
+    auto& impl = *pImpl;
+    if (impl.status != Status::Ready || ! impl.session)
         return false;
-    std::vector<float> dummy ((size_t)pImpl->fSize, 0.f);
-    std::vector<float> dummyOut ((size_t)pImpl->fSize, 0.f);
-    return runFrame (dummy.data (), dummyOut.data ());
+
+    std::vector<float> dummy ((size_t)impl.fSize, 0.f);
+    std::vector<float> dummyOut ((size_t)impl.fSize, 0.f);
+
+    std::memcpy (impl.inBuf.data (), dummy.data (), (size_t)impl.fSize * sizeof (float));
+    const char* inName  = impl.inputName.c_str ();
+    const char* outName = impl.outputName.c_str ();
+    try
+    {
+        Ort::Value inTensor = Ort::Value::CreateTensor<float> (
+            impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
+            impl.shape.data (), impl.shape.size ());
+        auto outputs = impl.session->Run (Ort::RunOptions{nullptr}, &inName, &inTensor, 1,
+                                          &outName, 1);
+        const float* ptr = outputs[0].GetTensorData<float> ();
+        std::memcpy (dummyOut.data (), ptr, (size_t)impl.fSize * sizeof (float));
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+#endif
 }
