@@ -8,6 +8,8 @@
 #include "panels/DelayPanel.h"
 #include "panels/SaturatorPanel.h"
 #include "panels/UtilityPanel.h"
+#include "panels/DenoisePanel.h"
+#include "panels/HumRemoverPanel.h"
 #include "../modules/GainModule.h"
 #include "../modules/ParametricEQModule.h"
 #include "../modules/GateModule.h"
@@ -17,6 +19,8 @@
 #include "../modules/DelayModule.h"
 #include "../modules/SaturatorModule.h"
 #include "../modules/UtilityModule.h"
+#include "../modules/DenoiseModule.h"
+#include "../modules/HumRemoverModule.h"
 
 void MainStage::paint (juce::Graphics& g)
 {
@@ -117,6 +121,16 @@ void MainStage::showModule (RackModule* module)
         case ModuleType::Utility:
             if (auto* m = dynamic_cast<UtilityModule*> (module))
                 activePanel = std::make_unique<UtilityPanel> (*m);
+            break;
+
+        case ModuleType::Denoise:
+            if (auto* m = dynamic_cast<DenoiseModule*> (module))
+                activePanel = std::make_unique<DenoisePanel> (*m);
+            break;
+
+        case ModuleType::HumRemover:
+            if (auto* m = dynamic_cast<HumRemoverModule*> (module))
+                activePanel = std::make_unique<HumRemoverPanel> (*m);
             break;
         }
 

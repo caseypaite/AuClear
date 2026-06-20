@@ -3,8 +3,8 @@ cmake_minimum_required(VERSION 3.22)
 project(AuClear VERSION 0.1.0 LANGUAGES C CXX)
 
 # ---------------------------------------------------------------------------
-# Phase 0 scaffold: empty passthrough plugin that builds to VST3 / AU / LV2 /
-# Standalone from a single JUCE codebase. See docs/07-roadmap.md.
+# Phase 0–3: Passthrough + DSP rack + real-time AI inference.
+# See docs/07-roadmap.md.
 # ---------------------------------------------------------------------------
 
 set(CMAKE_CXX_STANDARD 20)
@@ -19,6 +19,74 @@ endif()
 if(APPLE)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "10.15" CACHE STRING "" FORCE)
+endif()
+
+# --- ONNX Runtime -----------------------------------------------------------
+# Phase 3: real-time AI inference.
+# Set AUCLEAR_ORT_ROOT to a pre-extracted ORT release directory to skip download.
+# e.g. cmake -DAUCLEAR_ORT_ROOT=/path/to/onnxruntime-linux-x64-1.20.0 ..
+# Set AUCLEAR_NO_ONNX=ON to build without AI support (classic DSP only).
+option(AUCLEAR_NO_ONNX "Build without ONNX Runtime (no AI modules)" OFF)
+set(AUCLEAR_ORT_VERSION "1.20.0" CACHE STRING "ONNX Runtime version to fetch")
+
+if(NOT AUCLEAR_NO_ONNX)
+    include(FetchContent)
+
+    if(AUCLEAR_ORT_ROOT)
+        set(ort_SOURCE_DIR "${AUCLEAR_ORT_ROOT}")
+        set(ort_POPULATED TRUE)
+    else()
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+            set(_ORT_ARCHIVE "onnxruntime-linux-x64-${AUCLEAR_ORT_VERSION}.tgz")
+        elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+            set(_ORT_ARCHIVE "onnxruntime-osx-arm64-x86_64-${AUCLEAR_ORT_VERSION}.tgz")
+        elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+            set(_ORT_ARCHIVE "onnxruntime-win-x64-${AUCLEAR_ORT_VERSION}.zip")
+        else()
+            message(WARNING "AuClear: no pre-built ORT for this platform; set AUCLEAR_NO_ONNX=ON")
+            set(AUCLEAR_NO_ONNX ON)
+        endif()
+    endif()
+
+    if(NOT AUCLEAR_NO_ONNX AND NOT DEFINED ort_SOURCE_DIR)
+        FetchContent_Declare(
+            ort
+            URL "https://github.com/microsoft/onnxruntime/releases/download/v${AUCLEAR_ORT_VERSION}/${_ORT_ARCHIVE}"
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+        FetchContent_GetProperties(ort)
+        if(NOT ort_POPULATED)
+            FetchContent_Populate(ort)
+        endif()
+    endif()
+
+    if(NOT AUCLEAR_NO_ONNX)
+        # Find the actual .so/.dylib/.dll inside the extracted directory
+        if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+            set(_ORT_LIB "${ort_SOURCE_DIR}/lib/onnxruntime.lib")
+            set(_ORT_DLL "${ort_SOURCE_DIR}/lib/onnxruntime.dll")
+        elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+            set(_ORT_LIB "${ort_SOURCE_DIR}/lib/libonnxruntime.${AUCLEAR_ORT_VERSION}.dylib")
+        else()
+            set(_ORT_LIB "${ort_SOURCE_DIR}/lib/libonnxruntime.so.${AUCLEAR_ORT_VERSION}")
+        endif()
+
+        if(EXISTS "${_ORT_LIB}")
+            add_library(ort_imported SHARED IMPORTED GLOBAL)
+            set_target_properties(ort_imported PROPERTIES
+                IMPORTED_LOCATION         "${_ORT_LIB}"
+                INTERFACE_INCLUDE_DIRECTORIES "${ort_SOURCE_DIR}/include"
+                INTERFACE_COMPILE_DEFINITIONS "AUCLEAR_HAS_ONNXRUNTIME=1")
+            if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+                set_target_properties(ort_imported PROPERTIES
+                    IMPORTED_IMPLIB "${_ORT_LIB}")
+            endif()
+            set(AUCLEAR_ORT_TARGET ort_imported)
+            message(STATUS "AuClear: ONNX Runtime ${AUCLEAR_ORT_VERSION} found at ${_ORT_LIB}")
+        else()
+            message(WARNING "AuClear: ORT library not found at ${_ORT_LIB}; AI disabled")
+            set(AUCLEAR_NO_ONNX ON)
+        endif()
+    endif()
 endif()
 
 # --- JUCE -------------------------------------------------------------------
@@ -63,7 +131,7 @@ target_sources(AuClear PRIVATE
     src/PluginEditor.cpp
     # Engine
     src/engine/ProcessorRack.cpp
-    # Modules
+    # DSP modules
     src/modules/GainModule.cpp
     src/modules/ParametricEQModule.cpp
     src/modules/GateModule.cpp
@@ -73,6 +141,11 @@ target_sources(AuClear PRIVATE
     src/modules/DelayModule.cpp
     src/modules/SaturatorModule.cpp
     src/modules/UtilityModule.cpp
+    # AI modules (Phase 3)
+    src/ai/OnnxSession.cpp
+    src/ai/AIEngine.cpp
+    src/modules/DenoiseModule.cpp
+    src/modules/HumRemoverModule.cpp
     # UI
     src/ui/HeaderComponent.cpp
     src/ui/RackModuleCard.cpp
@@ -85,13 +158,28 @@ target_compile_definitions(AuClear PUBLIC
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0          # requires JUCE licence — see docs/06
-    JUCE_REPORT_APP_USAGE=0)
+    JUCE_REPORT_APP_USAGE=0
+    $<$<NOT:$<BOOL:${AUCLEAR_NO_ONNX}>>:AUCLEAR_HAS_ONNXRUNTIME=1>)
 
 target_link_libraries(AuClear
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        $<$<NOT:$<BOOL:${AUCLEAR_NO_ONNX}>>:${AUCLEAR_ORT_TARGET}>
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Copy ORT shared library next to each plugin format artefact so it is found at runtime.
+if(NOT AUCLEAR_NO_ONNX AND AUCLEAR_ORT_TARGET)
+    foreach(_fmt VST3 Standalone)
+        if(TARGET AuClear_${_fmt})
+            add_custom_command(TARGET AuClear_${_fmt} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${_ORT_LIB}"
+                    "$<TARGET_FILE_DIR:AuClear_${_fmt}>"
+                COMMENT "Copying ORT library for ${_fmt}")
+        endif()
+    endforeach()
+endif()

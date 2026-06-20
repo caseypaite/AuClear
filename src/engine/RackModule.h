@@ -13,6 +13,8 @@ enum class ModuleType : int
     Delay = 6,
     Saturator = 7,
     Utility = 8,
+    Denoise = 9,
+    HumRemover = 10,
 };
 
 /**

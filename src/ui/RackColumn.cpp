@@ -8,6 +8,8 @@
 #include "../modules/DelayModule.h"
 #include "../modules/SaturatorModule.h"
 #include "../modules/UtilityModule.h"
+#include "../modules/DenoiseModule.h"
+#include "../modules/HumRemoverModule.h"
 
 RackColumn::RackColumn (ProcessorRack& r) : rack (r)
 {
@@ -28,6 +30,9 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
         menu.addItem (7, "Delay");
         menu.addItem (8, "Saturator");
         menu.addItem (9, "Utility");
+        menu.addSeparator ();
+        menu.addItem (10, "AI Denoise");
+        menu.addItem (11, "Hum Remover");
 
         menu.showMenuAsync (juce::PopupMenu::Options{}.withTargetComponent (&addButton),
                             [this] (int result)
@@ -61,6 +66,12 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
                                     break;
                                 case 9:
                                     mod = std::make_unique<UtilityModule> ();
+                                    break;
+                                case 10:
+                                    mod = std::make_unique<DenoiseModule> ();
+                                    break;
+                                case 11:
+                                    mod = std::make_unique<HumRemoverModule> ();
                                     break;
                                 default:
                                     break;

@@ -9,6 +9,8 @@
 #include "modules/DelayModule.h"
 #include "modules/SaturatorModule.h"
 #include "modules/UtilityModule.h"
+#include "modules/DenoiseModule.h"
+#include "modules/HumRemoverModule.h"
 
 //==============================================================================
 juce::AudioProcessorValueTreeState::ParameterLayout AuClearAudioProcessor::createParameterLayout ()
@@ -176,6 +178,10 @@ void AuClearAudioProcessor::setStateInformation (const void* data, int sizeInByt
                                    return std::make_unique<SaturatorModule> ();
                                case ModuleType::Utility:
                                    return std::make_unique<UtilityModule> ();
+                               case ModuleType::Denoise:
+                                   return std::make_unique<DenoiseModule> ();
+                               case ModuleType::HumRemover:
+                                   return std::make_unique<HumRemoverModule> ();
                                }
                                return nullptr;
                            });

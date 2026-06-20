@@ -32,6 +32,36 @@ cmake --build build --parallel
 | `-DAUCLEAR_JUCE_TAG=<tag>` | `8.0.4` | Use a different JUCE tag |
 | `-DFETCHCONTENT_SOURCE_DIR_JUCE=/path` | — | Use a local JUCE clone (skips network fetch) |
 
+**ONNX Runtime options (Phase 3 AI):**
+
+| Option | Default | Effect |
+|---|---|---|
+| `-DAUCLEAR_NO_ONNX=ON` | `OFF` | Disable AI modules (classic DSP rack only) |
+| `-DAUCLEAR_ORT_ROOT=/path` | — | Use a pre-extracted ORT directory (skips network fetch) |
+| `-DAUCLEAR_ORT_VERSION=<ver>` | `1.20.0` | ORT version to fetch or match in ORT_ROOT |
+
+ORT is fetched automatically from the GitHub releases page if `AUCLEAR_ORT_ROOT` is not set.
+With an existing local copy (e.g. from another project):
+
+```bash
+cmake -B build \
+  -DAUCLEAR_ORT_ROOT=/path/to/onnxruntime-linux-x64-1.18.0 \
+  -DAUCLEAR_ORT_VERSION=1.18.0
+```
+
+### Generating test ONNX models
+
+A helper script is provided to create minimal models for verifying the AI pipeline:
+
+```bash
+pip install onnx
+python tools/make_test_model.py --type identity   # passthrough (verifies latency)
+python tools/make_test_model.py --type gate        # simple noise gate
+```
+
+Models are saved to `models/` (excluded from git by `.gitignore`).
+Load them in the Denoise module via the *Load Model…* button.
+
 ## Output locations
 
 Artefacts land under `build/AuClear_artefacts/Release/<Format>/`:
@@ -85,4 +115,19 @@ Style is JUCE-flavoured Allman — see `.clang-format` at the repo root.
 - [x] LUFS metering (ITU-R BS.1770-4): M/S/I + true-peak in meter bridge
 - [x] Limiter reports PDC latency via latencySamples()
 
-Next: **Phase 3 — AI stem separation** — see [07-roadmap.md](07-roadmap.md).
+## Phase 3 exit criteria
+
+- [x] `OnnxSession` wraps ORT with zero dynamic allocation on the audio thread
+- [x] `ReBlocker` adapts variable host buffer sizes to the model's fixed frame size
+- [x] `AIEngine` resamples to/from 48 kHz, runs per-channel inference, maintains dry delay for "listen to removed"
+- [x] `DenoiseModule` reports latency via `latencySamples()` — PDC updated automatically
+- [x] `HumRemoverModule` — adaptive notch cascade up to 8 harmonics (50/60 Hz)
+- [x] CPU load fraction exposed on `AIEngine::cpuLoad()`, shown in DenoisePanel at 4 Hz
+- [x] Build with ORT enabled: zero warnings, zero errors; ORT `.so` deployed next to VST3/Standalone
+- [x] Test model generation script (`tools/make_test_model.py`) — identity + noise-gate
+
+**Model sourcing:** load any `.onnx` model with a single `input` tensor `[1, N]` → `output` `[1, N]`
+at 48 kHz.  Frame size `N` is discovered at runtime.  Use `tools/make_test_model.py` for synthetic
+test signals; DeepFilterNet-compatible exports (when available) drop directly into `models/`.
+
+Next: **Phase 4 — Offline AI & Stems** — see [07-roadmap.md](07-roadmap.md).
