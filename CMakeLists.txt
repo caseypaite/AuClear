@@ -214,15 +214,17 @@ if(NOT AUCLEAR_NO_ONNX AND AUCLEAR_ORT_TARGET)
 
     foreach(_fmt VST3 AU LV2 Standalone)
         if(TARGET AuClear_${_fmt})
+            # ORT is PRIVATE to AuClear, so it never appears in format targets' own
+            # link commands. With GCC LTO on shared modules the linker requires an
+            # explicit reference — add ORT directly to each format target.
+            target_link_libraries(AuClear_${_fmt} PRIVATE ${AUCLEAR_ORT_TARGET})
+
             if(NOT WIN32)
                 set_target_properties(AuClear_${_fmt} PROPERTIES
                     BUILD_WITH_INSTALL_RPATH TRUE
                     INSTALL_RPATH            "${_ORT_RPATH}")
             endif()
 
-            # ORT is PRIVATE to AuClear so INTERFACE_LINK_DIRECTORIES doesn't reach
-            # format targets. Add it explicitly so the LTO shared-module linker can
-            # find libonnxruntime.so.1 by SONAME in the ORT lib directory.
             if(UNIX AND NOT APPLE)
                 target_link_directories(AuClear_${_fmt} PRIVATE "${ort_SOURCE_DIR}/lib")
             endif()
