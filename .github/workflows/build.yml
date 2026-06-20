@@ -178,13 +178,15 @@ jobs:
           if-no-files-found: error
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Release: create a draft GitHub Release when a v* tag is pushed.
+# Release:
+#   main branch → rolling "latest" pre-release (overwritten each green build)
+#   v* tag      → versioned draft release
 # All three platform zips are attached automatically.
 # ─────────────────────────────────────────────────────────────────────────────
   release:
-    name: Draft release
+    name: ${{ startsWith(github.ref, 'refs/tags/v') && 'Draft release' || 'Rolling latest release' }}
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -198,14 +200,27 @@ jobs:
       - name: Zip artifacts per platform
         run: |
           cd artifacts
+          LABEL=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'latest' }}
           for platform in Linux macOS Windows; do
             dir="AuClear-${platform}-${{ github.sha }}"
             [ -d "$dir" ] || continue
-            zip -r "../AuClear-${platform}-${{ github.ref_name }}.zip" "$dir"
+            zip -r "../AuClear-${platform}-${LABEL}.zip" "$dir"
           done
           ls -lh ../*.zip
 
-      - name: Create draft GitHub Release
+      - name: Publish rolling latest (main branch)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: "Latest build"
+          prerelease: true
+          make_latest: false
+          body: "Automated build from `main` — commit ${{ github.sha }}"
+          files: "*.zip"
+
+      - name: Create versioned draft release (v* tag)
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           draft: true
