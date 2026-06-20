@@ -20,6 +20,11 @@ void ProcessorRack::insertModule (int index, std::unique_ptr<RackModule> module)
     index = juce::jlimit (0, (int)guiOrder.size (), index);
     guiOrder.insert (guiOrder.begin () + index, raw);
 
+    // Prepare here on the message thread so the audio thread's drainCommandQueue()
+    // only has to splice a pointer — no heap alloc on the RT thread.
+    if (currentSpec.sampleRate > 0)
+        raw->prepare (currentSpec);
+
     commandQueue.push ({RackCommand::Type::Insert, index, -1, raw});
 }
 
@@ -227,9 +232,7 @@ void ProcessorRack::drainCommandQueue ()
         case RackCommand::Type::Insert:
         {
             int idx = juce::jlimit (0, (int)audioChain.size (), cmd.indexA);
-            // Prepare the new module now that we're on the audio thread with a valid spec.
-            if (currentSpec.sampleRate > 0)
-                cmd.module->prepare (currentSpec);
+            // Module was already prepared on the message thread in insertModule().
             audioChain.insert (audioChain.begin () + idx, cmd.module);
             break;
         }
