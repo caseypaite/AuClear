@@ -48,7 +48,13 @@ struct AIEngine::ChannelState
 };
 
 // ---------------------------------------------------------------------------
-AIEngine::AIEngine () : session (std::make_unique<OnnxSession> ()) {}
+AIEngine::AIEngine ()
+{
+    constexpr size_t numCh = 2;
+    sessions.resize (numCh);
+    for (size_t i = 0; i < numCh; ++i)
+        sessions[i] = std::make_unique<OnnxSession> ();
+}
 AIEngine::~AIEngine () = default;
 
 static void parseConfigIni (const juce::File& configFile, double& outSR, int& outFrameSize)
@@ -114,11 +120,17 @@ bool AIEngine::loadModel (const juce::File& file)
         }
     }
 
-    const bool ok = session->loadModel (file.getFullPathName ().toStdString ());
-    if (ok)
+    bool allOk = true;
+    for (auto& s : sessions)
+    {
+        if (! s->loadModel (file.getFullPathName ().toStdString ()))
+            allOk = false;
+    }
+
+    if (allOk)
     {
         // ONNX shape frame size is the ultimate source of truth if config.ini didn't override it
-        int discoveredFrame = session->frameSize ();
+        int discoveredFrame = sessions[0]->frameSize ();
         if (discoveredFrame > 0 && ! hasCustomHopSize)
             modelFrame = discoveredFrame;
 
@@ -126,35 +138,53 @@ bool AIEngine::loadModel (const juce::File& file)
         if (prepared)
             prepare (hostSR, maxBlock);
 
-        session->preWarm ();   // JIT compile on message thread before audio thread sees the model
-        session->makeReady (); // release-store: audio thread may now call runFrame()
+        for (auto& s : sessions)
+        {
+            s->preWarm ();   // JIT compile on message thread before audio thread sees the model
+            s->makeReady (); // release-store: audio thread may now call runFrame()
+        }
     }
-    return ok;
+    return allOk;
 }
 
 void AIEngine::unloadModel ()
 {
-    session->unloadModel ();
+    for (auto& s : sessions)
+        s->unloadModel ();
 }
 
 bool AIEngine::isLoaded () const
 {
-    return session->isLoaded ();
+    for (const auto& s : sessions)
+        if (! s->isLoaded ())
+            return false;
+    return ! sessions.empty ();
 }
 
 OnnxSession::Status AIEngine::getStatus () const
 {
-    return session->getStatus ();
+    if (sessions.empty ())
+        return OnnxSession::Status::Idle;
+    return sessions[0]->getStatus ();
 }
 
 juce::String AIEngine::getStatusString () const
 {
-    switch (session->getStatus ())
+    if (sessions.empty ())
+        return "No model loaded";
+
+    for (const auto& s : sessions)
+    {
+        if (s->getStatus () == OnnxSession::Status::Error)
+            return "Error: " + juce::String (s->getLastError ());
+    }
+
+    switch (sessions[0]->getStatus ())
     {
     case OnnxSession::Status::Ready:
         return "Model ready";
     case OnnxSession::Status::Error:
-        return "Error: " + juce::String (session->getLastError ());
+        return "Error: " + juce::String (sessions[0]->getLastError ());
     case OnnxSession::Status::Idle:
     default:
         return "No model loaded";
@@ -261,9 +291,9 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
 
     // 3. Re-block + inference
     cs.reBlocker.push (cs.modelIn.data (), nModel,
-                       [this] (const float* in, float* out)
+                       [this, ch] (const float* in, float* out)
                        {
-                           if (!session->runFrame (in, out))
+                           if (!sessions[(size_t)ch]->runFrame (in, out))
                                std::memcpy (out, in, (size_t)modelFrame * sizeof (float));
                        });
 
