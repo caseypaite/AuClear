@@ -31,7 +31,7 @@ struct OnnxSession::Impl
     // Pre-allocated buffers — no alloc in runFrame after init.
     std::vector<float> inBuf;
     std::vector<float> outBuf;
-    std::array<int64_t, 2> shape{}; // {1, fSize}
+    std::vector<int64_t> shape;
 
     // Atomic "safe to call runFrame" flag. Set by makeReady() AFTER loadModel()
     // + preWarm() complete so the audio thread never races on session/inBuf/outBuf.
@@ -76,19 +76,78 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
 
         // Discover frame size from model input shape [batch, frameSize]
         Ort::AllocatorWithDefaultOptions alloc;
-        auto typeInfo = impl.session->GetInputTypeInfo (0);
-        auto shape = typeInfo.GetTensorTypeAndShapeInfo ().GetShape ();
+        size_t numInputs = impl.session->GetInputCount ();
+        size_t numOutputs = impl.session->GetOutputCount ();
 
-        if (shape.size () < 2 || shape[1] <= 0)
+        if (numInputs != 1 || numOutputs != 1)
         {
-            impl.lastError = "Unexpected input shape (expected [batch, frameSize]).";
+            std::string msg = "Model must have exactly 1 input and 1 output. Found " 
+                              + std::to_string (numInputs) + " inputs, " 
+                              + std::to_string (numOutputs) + " outputs. ";
+            
+            msg += "Inputs: [";
+            for (size_t i = 0; i < numInputs; ++i)
+            {
+                auto nameAlloc = impl.session->GetInputNameAllocated (i, alloc);
+                auto sh = impl.session->GetInputTypeInfo (i).GetTensorTypeAndShapeInfo ().GetShape ();
+                msg += (i > 0 ? ", " : "") + std::string (nameAlloc.get ()) + "(";
+                for (size_t d = 0; d < sh.size (); ++d)
+                    msg += (d > 0 ? "x" : "") + std::to_string (sh[d]);
+                msg += ")";
+            }
+            msg += "]. Outputs: [";
+            for (size_t i = 0; i < numOutputs; ++i)
+            {
+                auto nameAlloc = impl.session->GetOutputNameAllocated (i, alloc);
+                auto sh = impl.session->GetOutputTypeInfo (i).GetTensorTypeAndShapeInfo ().GetShape ();
+                msg += (i > 0 ? ", " : "") + std::string (nameAlloc.get ()) + "(";
+                for (size_t d = 0; d < sh.size (); ++d)
+                    msg += (d > 0 ? "x" : "") + std::to_string (sh[d]);
+                msg += ")";
+            }
+            msg += "].";
+            
+            impl.lastError = msg;
             impl.status = Status::Error;
             impl.session.reset ();
             return false;
         }
 
-        impl.fSize = static_cast<int> (shape[1]);
-        impl.shape = {1, static_cast<int64_t> (impl.fSize)};
+        // Get actual input & output names dynamically
+        auto inputNameAllocated = impl.session->GetInputNameAllocated (0, alloc);
+        impl.inputName = inputNameAllocated.get ();
+
+        auto outputNameAllocated = impl.session->GetOutputNameAllocated (0, alloc);
+        impl.outputName = outputNameAllocated.get ();
+
+        auto typeInfo = impl.session->GetInputTypeInfo (0);
+        auto shape = typeInfo.GetTensorTypeAndShapeInfo ().GetShape ();
+
+        if (shape.size () < 2)
+        {
+            impl.lastError = "Model input shape must have at least 2 dimensions.";
+            impl.status = Status::Error;
+            impl.session.reset ();
+            return false;
+        }
+
+        // The frame size is the last dimension of the input shape
+        int fSizeIdx = (int)shape.size () - 1;
+        int64_t discoveredFrame = shape[(size_t)fSizeIdx];
+        if (discoveredFrame <= 0)
+        {
+            impl.lastError = "Invalid frame size discovered: " + std::to_string (discoveredFrame);
+            impl.status = Status::Error;
+            impl.session.reset ();
+            return false;
+        }
+
+        impl.fSize = static_cast<int> (discoveredFrame);
+        
+        // Preserve the full shape but force batch=1
+        impl.shape = shape;
+        impl.shape[0] = 1;
+
         impl.inBuf.assign ((size_t)impl.fSize, 0.f);
         impl.outBuf.assign ((size_t)impl.fSize, 0.f);
         impl.status = Status::Ready;
