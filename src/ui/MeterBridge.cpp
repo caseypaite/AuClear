@@ -54,17 +54,17 @@ void MeterBridge::timerCallback ()
 
 void MeterBridge::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (kPanel));
+    g.fillAll (juce::Colour (AP::kBgPanel));
 
     // Top divider
-    g.setColour (juce::Colour (kDivider));
+    g.setColour (juce::Colour (AP::kDiv));
     g.fillRect (0, 0, getWidth (), 1);
 
     auto b = getLocalBounds ().reduced (8, 6).toFloat ();
 
     // ── I/O Meters ──────────────────────────────────────────────────────────
     g.setFont (juce::FontOptions (11.f));
-    g.setColour (juce::Colour (kTextLo));
+    g.setColour (juce::Colour (AP::kTxtLo));
     g.drawText ("IN", b.removeFromLeft (20), juce::Justification::centred);
     b.removeFromLeft (4);
 
@@ -76,7 +76,7 @@ void MeterBridge::paint (juce::Graphics& g)
     b.removeFromLeft (grpGap);
 
     g.setFont (juce::FontOptions (11.f));
-    g.setColour (juce::Colour (kTextLo));
+    g.setColour (juce::Colour (AP::kTxtLo));
     g.drawText ("OUT", b.removeFromLeft (26), juce::Justification::centred);
     b.removeFromLeft (4);
 
@@ -91,7 +91,7 @@ void MeterBridge::paint (juce::Graphics& g)
     auto drawLufsCell = [&] (const juce::String& lbl, float val, juce::Colour col)
     {
         auto cell = lufsArea.removeFromLeft (70.f);
-        g.setColour (juce::Colour (kTextLo));
+        g.setColour (juce::Colour (AP::kTxtLo));
         g.setFont (juce::FontOptions (9.f));
         g.drawText (lbl, cell.removeFromTop (12), juce::Justification::centredLeft);
         g.setColour (col);
@@ -100,17 +100,17 @@ void MeterBridge::paint (juce::Graphics& g)
         g.drawText (txt, cell, juce::Justification::centredLeft);
     };
 
-    drawLufsCell ("M", lufsM, juce::Colour (kAccent));
-    drawLufsCell ("S", lufsS, juce::Colour (kAccent));
-    drawLufsCell ("I", lufsI, juce::Colour (kHold));
+    drawLufsCell ("M", lufsM, juce::Colour (AP::kAccentBr));
+    drawLufsCell ("S", lufsS, juce::Colour (AP::kAccentBr));
+    drawLufsCell ("I", lufsI, juce::Colour (AP::kTxtHi));
 
     // True-peak
     {
         auto cell = lufsArea.removeFromLeft (70.f);
-        g.setColour (juce::Colour (kTextLo));
+        g.setColour (juce::Colour (AP::kTxtLo));
         g.setFont (juce::FontOptions (9.f));
         g.drawText ("TP", cell.removeFromTop (12), juce::Justification::centredLeft);
-        g.setColour (tpDb > -1.f ? juce::Colour (kRed) : juce::Colour (kAccent));
+        g.setColour (tpDb > -1.f ? juce::Colour (AP::kRed) : juce::Colour (AP::kAccentBr));
         g.setFont (juce::Font (juce::FontOptions (12.f).withStyle ("Bold")));
         const juce::String tpTxt = (tpDb > -100.f) ? juce::String (tpDb, 1) + " dB" : "  ---";
         g.drawText (tpTxt, cell, juce::Justification::centredLeft);
@@ -120,7 +120,7 @@ void MeterBridge::paint (juce::Graphics& g)
 void MeterBridge::drawMeterBar (juce::Graphics& g, juce::Rectangle<float> bounds, float peakDb,
                                 float holdDb) const
 {
-    g.setColour (juce::Colour (0xff0d0f12));
+    g.setColour (juce::Colour (AP::kBgDeep));
     g.fillRoundedRectangle (bounds, 2.f);
 
     const float range = kCeil - kFloor;
@@ -140,29 +140,29 @@ void MeterBridge::drawMeterBar (juce::Graphics& g, juce::Rectangle<float> bounds
 
         if (frac <= greenFrac)
         {
-            g.setColour (juce::Colour (kGreen));
+            g.setColour (juce::Colour (AP::kGreen));
             g.fillRoundedRectangle (bar, 2.f);
         }
         else if (frac <= amberFrac)
         {
             const float gH = bounds.getHeight () * greenFrac;
-            g.setColour (juce::Colour (kGreen));
+            g.setColour (juce::Colour (AP::kGreen));
             g.fillRoundedRectangle ({bar.getX (), bounds.getBottom () - gH, bar.getWidth (), gH},
                                     2.f);
-            g.setColour (juce::Colour (kAmber));
+            g.setColour (juce::Colour (AP::kAmber));
             g.fillRoundedRectangle ({bar.getX (), barY, bar.getWidth (), barH - gH}, 2.f);
         }
         else
         {
             const float gH = bounds.getHeight () * greenFrac;
             const float aH = bounds.getHeight () * amberFrac;
-            g.setColour (juce::Colour (kGreen));
+            g.setColour (juce::Colour (AP::kGreen));
             g.fillRoundedRectangle ({bar.getX (), bounds.getBottom () - gH, bar.getWidth (), gH},
                                     2.f);
-            g.setColour (juce::Colour (kAmber));
+            g.setColour (juce::Colour (AP::kAmber));
             g.fillRoundedRectangle (
                 {bar.getX (), bounds.getBottom () - aH, bar.getWidth (), aH - gH}, 2.f);
-            g.setColour (juce::Colour (kRed));
+            g.setColour (juce::Colour (AP::kRed));
             g.fillRoundedRectangle ({bar.getX (), barY, bar.getWidth (), barH - aH}, 2.f);
         }
     }
@@ -170,7 +170,7 @@ void MeterBridge::drawMeterBar (juce::Graphics& g, juce::Rectangle<float> bounds
     if (holdDb > kFloor)
     {
         const float holdY = bounds.getBottom () - bounds.getHeight () * holdF;
-        g.setColour (juce::Colour (kHold));
+        g.setColour (juce::Colour (AP::kTxtHi));
         g.fillRect (bounds.getX (), holdY - 1.f, bounds.getWidth (), 2.f);
     }
 }

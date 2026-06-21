@@ -25,13 +25,15 @@ class RackColumn : public juce::Component, public RackModuleCard::Listener
     void syncWithRack ();
 
     std::function<void (RackModule*)> onModuleSelected;
+    std::function<void ()>            onBeforeStructuralChange; // called before add/remove/move
 
     // RackModuleCard::Listener
-    void cardSelected (RackModuleCard* card) override;
-    void cardRemoved (RackModuleCard* card) override;
+    void cardSelected    (RackModuleCard* card) override;
+    void cardRemoved     (RackModuleCard* card) override;
+    void cardDuplicated  (RackModuleCard* card) override;
     void cardDragStarted (RackModuleCard* card, const juce::MouseEvent& e) override;
-    void cardDragged (RackModuleCard* card, const juce::MouseEvent& e) override;
-    void cardDragEnded (RackModuleCard* card, const juce::MouseEvent& e) override;
+    void cardDragged     (RackModuleCard* card, const juce::MouseEvent& e) override;
+    void cardDragEnded   (RackModuleCard* card, const juce::MouseEvent& e) override;
 
     static constexpr int kCardH = RackModuleCard::kHeight;
     static constexpr int kCardGap = 1;
@@ -55,7 +57,4 @@ class RackColumn : public juce::Component, public RackModuleCard::Listener
     RackModuleCard* dragCard{nullptr};
     int dragStartIndex{-1};
 
-    static constexpr juce::uint32 kBg     = AP::kBgBase;
-    static constexpr juce::uint32 kAccent = AP::kAccentBr;
-    static constexpr juce::uint32 kDiv    = AP::kDiv;
 };

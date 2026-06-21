@@ -38,13 +38,4 @@ class MeterBridge : public juce::Component, private juce::Timer
     static constexpr int kHz = 30;
     static constexpr int kHoldFrames = 90; // 3 s @ 30 Hz
 
-    static constexpr juce::uint32 kBg      = AP::kBgBase;
-    static constexpr juce::uint32 kPanel   = AP::kBgPanel;
-    static constexpr juce::uint32 kGreen   = AP::kGreen;
-    static constexpr juce::uint32 kAmber   = AP::kAmber;
-    static constexpr juce::uint32 kRed     = AP::kRed;
-    static constexpr juce::uint32 kHold    = AP::kTxtHi;
-    static constexpr juce::uint32 kAccent  = AP::kAccentBr;
-    static constexpr juce::uint32 kTextLo  = AP::kTxtLo;
-    static constexpr juce::uint32 kDivider = AP::kDiv;
 };

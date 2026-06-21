@@ -21,3 +21,5 @@ Thumbs.db
 
 # Large model assets (fetched at build/first-run — see docs/06)
 /models/*.onnx
+!/models/identity.onnx
+!/models/gate.onnx

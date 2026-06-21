@@ -55,6 +55,7 @@ class RealtimeStemProcessor : private juce::Thread
     bool loadModel (const juce::File& onnxPath);
     void unloadModel ();
     bool isModelLoaded () const noexcept { return modelLoaded.load (std::memory_order_relaxed); }
+    juce::File getModelFile () const { return currentModelFile; }
 
     void setEnabled (bool e);
     bool isEnabled  () const noexcept { return enabled.load (std::memory_order_relaxed); }
@@ -68,6 +69,8 @@ class RealtimeStemProcessor : private juce::Thread
 
     juce::String getStatusString () const;
     int          getSourceCount  () const noexcept { return nSrc; }
+
+    std::function<void ()> modelStatusChanged; // called on message thread after load
 
     // ── Audio-thread ──────────────────────────────────────────────────────────
     // Push the current block as input and (if stem output is available) mix the
@@ -84,6 +87,7 @@ class RealtimeStemProcessor : private juce::Thread
     std::atomic<bool>                modelLoaded{false};
     std::atomic<bool>                enabled{false};
     std::atomic<Status>              status{Status::Idle};
+    juce::File                       currentModelFile;
 
     // Input ring — audio thread writes, inference thread reads.
     juce::AbstractFifo         inputFifo{2};
@@ -124,6 +128,7 @@ class RealtimeStemProcessor
     bool         loadModel (const juce::File&) { return false; }
     void         unloadModel ()                {}
     bool         isModelLoaded () const noexcept { return false; }
+    juce::File   getModelFile () const { return currentModelFile; }
     void         setEnabled (bool)             {}
     bool         isEnabled  () const noexcept { return false; }
     bool         isActive   () const noexcept { return false; }
@@ -133,6 +138,11 @@ class RealtimeStemProcessor
     juce::String getStatusString () const      { return "No ONNX Runtime"; }
     int          getSourceCount  () const noexcept { return 0; }
     bool         process (juce::AudioBuffer<float>&, int) { return false; }
+
+    std::function<void ()> modelStatusChanged;
+
+  private:
+    juce::File   currentModelFile;
 };
 
 #endif

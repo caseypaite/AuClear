@@ -25,18 +25,22 @@
 #include "../modules/DynamicEQModule.h"
 #include "../modules/MultibandCompressorModule.h"
 #include "../modules/SpectralRepairModule.h"
+#include "../modules/TransientShaperModule.h"
+#include "../modules/StereoWidthModule.h"
 #include "panels/DeEsserPanel.h"
 #include "panels/DynamicEQPanel.h"
 #include "panels/MultibandCompressorPanel.h"
 #include "panels/SpectralRepairPanel.h"
+#include "panels/TransientShaperPanel.h"
+#include "panels/StereoWidthPanel.h"
 
 void MainStage::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (kBg));
+    g.fillAll (juce::Colour (AP::kBgBase));
 
     if (currentModule == nullptr)
     {
-        g.setColour (juce::Colour (kTextLo));
+        g.setColour (juce::Colour (AP::kTxtLo));
         g.setFont (juce::FontOptions (14.f));
         g.drawText ("Select a module to edit it here", getLocalBounds (),
                     juce::Justification::centred);
@@ -45,18 +49,18 @@ void MainStage::paint (juce::Graphics& g)
 
     // Module panel header bar
     auto hdr = getLocalBounds ().removeFromTop (44);
-    g.setColour (juce::Colour (kPanel));
+    g.setColour (juce::Colour (AP::kBgPanel));
     g.fillRect (hdr);
-    g.setColour (juce::Colour (kDivider));
+    g.setColour (juce::Colour (AP::kDiv));
     g.fillRect (0, hdr.getBottom () - 1, getWidth (), 1);
 
     g.setFont (juce::Font (juce::FontOptions (16.f).withStyle ("Bold")));
-    g.setColour (juce::Colour (kTextHi));
+    g.setColour (juce::Colour (AP::kTxtHi));
     g.drawText (currentModule->name (), hdr.reduced (16, 0), juce::Justification::centredLeft);
 
     // Module type badge
     g.setFont (juce::FontOptions (11.f));
-    g.setColour (juce::Colour (kAccent));
+    g.setColour (juce::Colour (AP::kAccentBr));
     g.drawText (currentModule->uid.substring (0, 8), hdr.reduced (16, 0),
                 juce::Justification::centredRight);
 }
@@ -159,6 +163,16 @@ void MainStage::showModule (RackModule* module)
         case ModuleType::SpectralRepair:
             if (auto* m = dynamic_cast<SpectralRepairModule*> (module))
                 activePanel = std::make_unique<SpectralRepairPanel> (*m);
+            break;
+
+        case ModuleType::TransientShaper:
+            if (auto* m = dynamic_cast<TransientShaperModule*> (module))
+                activePanel = std::make_unique<TransientShaperPanel> (*m);
+            break;
+
+        case ModuleType::StereoWidth:
+            if (auto* m = dynamic_cast<StereoWidthModule*> (module))
+                activePanel = std::make_unique<StereoWidthPanel> (*m);
             break;
         }
 

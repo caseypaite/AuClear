@@ -28,6 +28,7 @@ bool RealtimeStemProcessor::loadModel (const juce::File& onnxPath)
         session    = std::move (newSession);
         segLen     = session->segmentSamples ();
         nSrc       = juce::jmin (4, session->numSources ());
+        currentModelFile = onnxPath;
         modelLoaded.store (true, std::memory_order_release);
     }
 
@@ -42,6 +43,10 @@ bool RealtimeStemProcessor::loadModel (const juce::File& onnxPath)
         status.store (Status::Buffering, std::memory_order_relaxed);
         startThread (juce::Thread::Priority::normal);
     }
+
+    if (modelStatusChanged != nullptr)
+        modelStatusChanged ();
+
     return true;
 }
 
@@ -51,12 +56,16 @@ void RealtimeStemProcessor::unloadModel ()
     {
         juce::ScopedLock sl (modelLock);
         session.reset ();
+        currentModelFile = juce::File ();
         modelLoaded.store (false, std::memory_order_release);
         segLen = 0;
         nSrc   = 4;
     }
     resetFifos ();
     status.store (Status::Idle, std::memory_order_relaxed);
+
+    if (modelStatusChanged != nullptr)
+        modelStatusChanged ();
 }
 
 void RealtimeStemProcessor::setEnabled (bool e)

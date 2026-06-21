@@ -14,6 +14,8 @@
 #include "../modules/DynamicEQModule.h"
 #include "../modules/MultibandCompressorModule.h"
 #include "../modules/SpectralRepairModule.h"
+#include "../modules/TransientShaperModule.h"
+#include "../modules/StereoWidthModule.h"
 
 std::unique_ptr<RackModule> makeModule (ModuleType type)
 {
@@ -49,6 +51,10 @@ std::unique_ptr<RackModule> makeModule (ModuleType type)
         return std::make_unique<MultibandCompressorModule> ();
     case ModuleType::SpectralRepair:
         return std::make_unique<SpectralRepairModule> ();
+    case ModuleType::TransientShaper:
+        return std::make_unique<TransientShaperModule> ();
+    case ModuleType::StereoWidth:
+        return std::make_unique<StereoWidthModule> ();
     }
     return nullptr;
 }

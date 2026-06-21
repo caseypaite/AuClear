@@ -15,10 +15,12 @@ enum class ModuleType : int
     Utility = 8,
     Denoise = 9,
     HumRemover = 10,
-    DeEsser        = 11,
-    DynamicEQ      = 12,
-    MultibandComp  = 13,
-    SpectralRepair = 14,
+    DeEsser          = 11,
+    DynamicEQ        = 12,
+    MultibandComp    = 13,
+    SpectralRepair   = 14,
+    TransientShaper  = 15,
+    StereoWidth      = 16,
 };
 
 /**

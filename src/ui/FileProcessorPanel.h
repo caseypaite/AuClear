@@ -330,6 +330,7 @@ class FileProcessorPanel : public juce::Component, public juce::FileDragAndDropT
         {
             juce::AudioFormatManager fmt;
             fmt.registerBasicFormats ();
+            fmt.registerFormat (new juce::MP3AudioFormat (), true);
             if (auto r = std::unique_ptr<juce::AudioFormatReader> (fmt.createReaderFor (inputFile)))
             {
                 sr = r->sampleRate;

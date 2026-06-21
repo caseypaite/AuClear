@@ -3,6 +3,8 @@
 #include <JuceHeader.h>
 #include "engine/ProcessorRack.h"
 #include "engine/PresetManager.h"
+#include "engine/UndoHistory.h"
+#include "engine/ModuleFactory.h"
 #include "engine/RealtimeStemProcessor.h"
 
 class AuClearAudioProcessor : public juce::AudioProcessor
@@ -38,10 +40,15 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     float getCpuLoad () const    { return loadMeasurer.getLoadAsProportion (); }
 
     // ─── Preset API (message thread) ─────────────────────────────────────────
-    bool loadPreset   (const juce::String& name) { return presetManager.load (name);   }
-    bool savePreset   (const juce::String& name) { return presetManager.save (name);   }
+    bool loadPreset   (const juce::String& name) { undoHistory.clear (); return presetManager.load (name); }
+    bool savePreset   (const juce::String& name) { return presetManager.save (name); }
     bool deletePreset (const juce::String& name) { return presetManager.remove (name); }
     PresetManager::PresetLists getPresetLists () const { return presetManager.getLists (); }
+
+    // ─── Undo (message thread) ────────────────────────────────────────────────
+    void snapshotForUndo ()       { undoHistory.snapshot (rack); }
+    bool undo ()                  { return undoHistory.undo (rack, makeModule); }
+    bool canUndo () const         { return undoHistory.canUndo (); }
 
     // ─── Media player (standalone mode) ──────────────────────────────────────
     bool loadMediaFile (const juce::File& file);
@@ -61,6 +68,7 @@ class AuClearAudioProcessor : public juce::AudioProcessor
   private:
     ProcessorRack  rack;
     PresetManager  presetManager{rack};
+    UndoHistory    undoHistory;
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessLoadMeasurer loadMeasurer;
 

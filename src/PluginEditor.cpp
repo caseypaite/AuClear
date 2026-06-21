@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "ui/AnalogPalette.h"
 
 AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p), rackColumn (p.getRack ()),
@@ -13,6 +14,28 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
     addAndMakeVisible (inspectorPanel);
 
     rackColumn.onModuleSelected = [this] (RackModule* m) { mainStage.showModule (m); };
+
+    header.onUndoClicked = [this]
+    {
+        if (processorRef.undo ())
+            rackColumn.syncWithRack ();
+    };
+
+    rackColumn.onBeforeStructuralChange = [this] { processorRef.snapshotForUndo (); };
+
+    header.onThemeChanged = [this] (int idx)
+    {
+        AP::setTheme (idx);
+        repaint ();              // repaint the whole editor
+        rackColumn.repaint ();
+        mainStage.repaint ();
+        meterBridge.repaint ();
+        inspectorPanel.repaint ();
+        header.repaint ();
+    };
+
+    // Restore saved theme before first paint
+    AP::loadSavedTheme ();
 
     header.onPresetChosen = [this] (const juce::String& choice)
     {
@@ -30,15 +53,13 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
     {
         mediaPlayerPanel = std::make_unique<MediaPlayerPanel> (p);
         addAndMakeVisible (*mediaPlayerPanel);
-
-        stemRemixPanel = std::make_unique<StemRemixPanel> (p);
-        addAndMakeVisible (*stemRemixPanel);
     }
 
+    stemRemixPanel = std::make_unique<StemRemixPanel> (p);
+    addAndMakeVisible (*stemRemixPanel);
+
     setResizable (true, true);
-    const int h = juce::JUCEApplicationBase::isStandaloneApp ()
-                      ? 620 + kPlayerHeight + kStemPanelHeight
-                      : 620;
+    const int h = 620 + kStemPanelHeight + (juce::JUCEApplicationBase::isStandaloneApp () ? kPlayerHeight : 0);
     setResizeLimits (600, 500, 2560, 1800);
     setSize (1000, h);
 
@@ -117,4 +138,7 @@ void AuClearAudioProcessorEditor::timerCallback ()
     header.setLatencyMs (latMs);
 
     inspectorPanel.setSampleRate (processorRef.getSampleRate ());
+
+    if (stemRemixPanel != nullptr)
+        stemRemixPanel->syncWithProcessor ();
 }

@@ -21,12 +21,6 @@ class MainStage : public juce::Component
     RackModule* currentModule{nullptr};
     std::unique_ptr<juce::Component> activePanel;
 
-    static constexpr juce::uint32 kBg      = AP::kBgBase;
-    static constexpr juce::uint32 kPanel   = AP::kBgPanel;
-    static constexpr juce::uint32 kAccent  = AP::kAccentBr;
-    static constexpr juce::uint32 kTextHi  = AP::kTxtHi;
-    static constexpr juce::uint32 kTextLo  = AP::kTxtLo;
-    static constexpr juce::uint32 kDivider = AP::kDiv;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainStage)
 };

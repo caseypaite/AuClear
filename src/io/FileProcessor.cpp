@@ -118,6 +118,7 @@ bool FileProcessor::processAudioFile (juce::File input, juce::File output)
 {
     juce::AudioFormatManager fmt;
     fmt.registerBasicFormats ();
+    fmt.registerFormat (new juce::MP3AudioFormat (), true);
 
     auto reader = std::unique_ptr<juce::AudioFormatReader> (fmt.createReaderFor (input));
     if (!reader)

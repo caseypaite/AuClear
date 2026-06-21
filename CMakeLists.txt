@@ -188,6 +188,10 @@ target_sources(AuClear PRIVATE
     src/modules/SpectralRepairModule.cpp
     # Phase 6 — Preset system
     src/engine/PresetManager.cpp
+    src/engine/UndoHistory.cpp
+    src/ui/AnalogPalette.cpp
+    src/modules/TransientShaperModule.cpp
+    src/modules/StereoWidthModule.cpp
     # Offline job manager + Demucs runner (Phase 4)
     src/offline/ArtifactCache.cpp
     src/offline/OfflineJobManager.cpp
@@ -208,6 +212,7 @@ target_compile_definitions(AuClear PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0          # requires JUCE licence — see docs/06
     JUCE_REPORT_APP_USAGE=0
+    JUCE_USE_MP3AUDIOFORMAT=1
     $<$<NOT:$<BOOL:${AUCLEAR_NO_ONNX}>>:AUCLEAR_HAS_ONNXRUNTIME=1>)
 
 target_link_libraries(AuClear
@@ -273,3 +278,4 @@ if(NOT AUCLEAR_NO_ONNX AND AUCLEAR_ORT_TARGET)
         endif()
     endforeach()
 endif()
+

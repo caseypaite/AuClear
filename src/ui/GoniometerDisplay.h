@@ -114,15 +114,17 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
         if (!trailImg.isValid ())
             return;
 
-        // Fade existing trail by drawing a semi-transparent background overlay
-        {
-            juce::Graphics gImg (trailImg);
-            gImg.setColour (juce::Colour (AP::kBgDeep).withAlpha (0.25f));
-            gImg.fillAll ();
-        }
-
         if (n > 0)
         {
+            trailIdleFrames = 0;
+
+            // Fade existing trail
+            {
+                juce::Graphics gImg (trailImg);
+                gImg.setColour (juce::Colour (AP::kBgDeep).withAlpha (0.25f));
+                gImg.fillAll ();
+            }
+
             // Compute stereo correlation
             double sumLR = 0.0, sumL2 = 0.0, sumR2 = 0.0;
             for (int i = 0; i < n; ++i)
@@ -137,16 +139,15 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
                               : 1.f;
 
             // Plot dots on trail image
-            const float iw     = static_cast<float> (trailImg.getWidth ());
-            const float ih     = static_cast<float> (trailImg.getHeight ());
-            const float cx     = iw * 0.5f;
-            const float cy     = ih * 0.5f;
-            const float scale  = juce::jmin (cx, cy) * 0.88f;
+            const float iw    = static_cast<float> (trailImg.getWidth ());
+            const float ih    = static_cast<float> (trailImg.getHeight ());
+            const float cx    = iw * 0.5f;
+            const float cy    = ih * 0.5f;
+            const float scale = juce::jmin (cx, cy) * 0.88f;
 
             juce::Graphics gImg (trailImg);
             gImg.setColour (juce::Colour (AP::kAccentBr));
 
-            // Subsample to keep at most ~400 dots per frame
             const int step = juce::jmax (1, n / 400);
             for (int i = 0; i < n; i += step)
             {
@@ -156,14 +157,31 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
                                   cy - s * scale - 1.5f,
                                   3.f, 3.f);
             }
-        }
 
-        repaint ();
+            repaint ();
+        }
+        else
+        {
+            // No new audio: let the trail decay for a few more frames, then stop.
+            if (trailIdleFrames < kTrailDecayFrames)
+            {
+                ++trailIdleFrames;
+                juce::Graphics gImg (trailImg);
+                gImg.setColour (juce::Colour (AP::kBgDeep).withAlpha (0.25f));
+                gImg.fillAll ();
+                repaint ();
+            }
+            // After kTrailDecayFrames with no audio, stop repainting entirely.
+        }
     }
 
     GoniometerFifo& gonioFifo;
     juce::Image     trailImg;
     float           displayCorr{1.f};
+    int             trailIdleFrames{0};
+
+    // After this many silent frames the display freezes (saves ~30 paints/sec at idle)
+    static constexpr int kTrailDecayFrames = 45; // ~1.5 s at 30 Hz
 
     // Drain buffers: pre-allocated on the heap to avoid large stack frames
     std::vector<float> lBuf{std::vector<float> (GoniometerFifo::kCapacity)};

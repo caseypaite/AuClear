@@ -18,6 +18,7 @@ AuClearAudioProcessor::AuClearAudioProcessor ()
       apvts (*this, nullptr, "AuClearState", createParameterLayout ())
 {
     formatManager.registerBasicFormats ();
+    formatManager.registerFormat (new juce::MP3AudioFormat (), true);
 }
 
 AuClearAudioProcessor::~AuClearAudioProcessor () = default;
@@ -174,6 +175,24 @@ void AuClearAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::ValueTree rackTree ("Rack");
     rack.getState (rackTree);
     state.appendChild (rackTree, nullptr);
+
+    // Save Stem Mixer State
+    juce::ValueTree stemTree ("StemMixer");
+    auto& sp = realtimeStemProc;
+    stemTree.setProperty ("modelPath", sp.getModelFile ().getFullPathName (), nullptr);
+    stemTree.setProperty ("enabled", sp.isEnabled (), nullptr);
+    stemTree.setProperty ("dryMix", sp.dryMix.load (), nullptr);
+    for (int i = 0; i < 4; ++i)
+    {
+        juce::ValueTree child ("Stem_" + juce::String (i));
+        child.setProperty ("gain", sp.stems[(size_t)i].gain.load (), nullptr);
+        child.setProperty ("pan", sp.stems[(size_t)i].pan.load (), nullptr);
+        child.setProperty ("muted", sp.stems[(size_t)i].muted.load (), nullptr);
+        child.setProperty ("soloed", sp.stems[(size_t)i].soloed.load (), nullptr);
+        stemTree.appendChild (child, nullptr);
+    }
+    state.appendChild (stemTree, nullptr);
+
     if (auto xml = state.createXml ())
         copyXmlToBinary (*xml, destData);
 }
@@ -188,6 +207,45 @@ void AuClearAudioProcessor::setStateInformation (const void* data, int sizeInByt
         auto rackTree = state.getChildWithName ("Rack");
         if (rackTree.isValid ())
             rack.setState (rackTree, makeModule);
+
+        // Restore Stem Mixer State
+        auto stemTree = state.getChildWithName ("StemMixer");
+        if (stemTree.isValid ())
+        {
+            auto& sp = realtimeStemProc;
+            juce::String modelPath = stemTree.getProperty ("modelPath", "");
+            bool isEnabled = stemTree.getProperty ("enabled", false);
+            float dryMixVal = stemTree.getProperty ("dryMix", 0.0f);
+
+            sp.dryMix.store (dryMixVal);
+
+            for (int i = 0; i < 4; ++i)
+            {
+                auto child = stemTree.getChildWithName ("Stem_" + juce::String (i));
+                if (child.isValid ())
+                {
+                    sp.stems[(size_t)i].gain.store (child.getProperty ("gain", 1.0f));
+                    sp.stems[(size_t)i].pan.store (child.getProperty ("pan", 0.0f));
+                    sp.stems[(size_t)i].muted.store (child.getProperty ("muted", false));
+                    sp.stems[(size_t)i].soloed.store (child.getProperty ("soloed", false));
+                }
+            }
+
+            if (modelPath.isNotEmpty ())
+            {
+                juce::File f (modelPath);
+                if (f.existsAsFile ())
+                {
+                    sp.loadModel (f);
+                }
+            }
+            else
+            {
+                sp.unloadModel ();
+            }
+
+            sp.setEnabled (isEnabled);
+        }
     }
 }
 

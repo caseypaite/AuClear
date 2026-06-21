@@ -16,6 +16,7 @@ struct AIEngine::ChannelState
     std::vector<float> modelIn;
     std::vector<float> modelOut;
     std::vector<float> wetHost; // host-SR output of the upsample stage
+    std::vector<float> resampleInPad; // padded input for downSampler
 
     // Dry delay ring: aligns original with the re-blocked wet output.
     std::vector<float> dryRing;
@@ -35,6 +36,8 @@ struct AIEngine::ChannelState
         modelIn.assign ((size_t)maxModelSamples, 0.f);
         modelOut.assign ((size_t)maxModelSamples, 0.f);
         wetHost.assign ((size_t)maxHostBlock, 0.f); // exact host-block size
+        resampleInPad.assign ((size_t)maxHostBlock + 16, 0.f);
+
 
         // Dry delay ring must hold at least totalLatencyHostSamples.
         const int ringLen = juce::nextPowerOfTwo (totalLatencyHostSamples * 2 + maxHostBlock);
@@ -177,7 +180,15 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
         // speedRatio = srcSamplesPerOutput = hostSR/modelSR
         nModel = (int)std::ceil ((double)n / downRatio);
         nModel = std::min (nModel, (int)cs.modelIn.size ());
-        cs.downSampler.process (downRatio, wr, cs.modelIn.data (), nModel);
+
+        // LagrangeInterpolator may read past the end of the input — copy to padded buffer first
+        const int cap = std::min (n, (int)cs.resampleInPad.size ());
+        std::memcpy (cs.resampleInPad.data (), wr, (size_t)cap * sizeof (float));
+        const int padSize = std::min (16, (int)cs.resampleInPad.size () - cap);
+        if (padSize > 0)
+            std::fill (cs.resampleInPad.begin () + cap, cs.resampleInPad.begin () + cap + padSize, 0.f);
+
+        cs.downSampler.process (downRatio, cs.resampleInPad.data (), cs.modelIn.data (), nModel);
     }
 
     // 3. Re-block + inference
@@ -190,6 +201,12 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
 
     cs.reBlocker.pop (cs.modelOut.data (), nModel);
 
+    // LagrangeInterpolator may read past the end of modelOut — zero-pad it
+    const int padStart = std::min (nModel, (int)cs.modelOut.size ());
+    const int padSize = std::min (16, (int)cs.modelOut.size () - padStart);
+    if (padSize > 0)
+        std::fill (cs.modelOut.begin () + padStart, cs.modelOut.begin () + padStart + padSize, 0.f);
+
     // 4. Resample model→host SR (into pre-allocated cs.wetHost — no heap alloc)
     if (std::abs (hostSR - kModelSR) < 0.5)
     {
@@ -200,6 +217,7 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
         const double upRatio = kModelSR / hostSR; // < 1 when upsampling to lower SR
         cs.upSampler.process (upRatio, cs.modelOut.data (), cs.wetHost.data (), n);
     }
+
 
     // 5. Mix or listen-to-removed
     const int cap = (int)cs.dryRing.size ();

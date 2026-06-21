@@ -10,10 +10,12 @@ class HeaderComponent : public juce::Component
 
     void paint (juce::Graphics& g) override;
     void resized () override;
+    void mouseDown (const juce::MouseEvent& e) override;
 
     std::function<void ()>               onBypassToggled;
     std::function<void ()>               onUndoClicked;
     std::function<void (juce::String)>   onPresetChosen;   // preset name
+    std::function<void (int)>            onThemeChanged;   // theme index 0–3
 
     void setCpuLoad (float fraction) { cpuLoad = fraction; repaint (); }
     void setLatencyMs (double ms)    { latencyMs = ms;     repaint (); }
@@ -37,6 +39,9 @@ class HeaderComponent : public juce::Component
 
   private:
     void showPresetPopup ();
+    void paintThemeSwatch (juce::Graphics& g, int themeIdx,
+                           juce::Rectangle<int> bounds) const;
+    juce::Rectangle<int> swatchBounds (int themeIdx) const;
 
     juce::TextButton bypassButton{"Bypass"};
     juce::TextButton undoButton{"Undo"};

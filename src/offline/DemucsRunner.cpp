@@ -68,6 +68,7 @@ juce::Array<juce::File> DemucsRunner::run (const juce::File& inputFile,
     // ── 1. Open input file ────────────────────────────────────────────────────
     juce::AudioFormatManager fmt;
     fmt.registerBasicFormats ();
+    fmt.registerFormat (new juce::MP3AudioFormat (), true);
 
     auto reader = std::unique_ptr<juce::AudioFormatReader> (fmt.createReaderFor (inputFile));
     if (! reader)

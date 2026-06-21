@@ -271,6 +271,7 @@ void OfflineJobManager::runDspProcess (OfflineJob& job)
     // ── Process audio through the rack ────────────────────────────────────────
     juce::AudioFormatManager fmt;
     fmt.registerBasicFormats ();
+    fmt.registerFormat (new juce::MP3AudioFormat (), true);
 
     auto reader = std::unique_ptr<juce::AudioFormatReader> (fmt.createReaderFor (audioIn));
     if (!reader)

@@ -1,4 +1,5 @@
 #include "RackColumn.h"
+#include "../engine/ModuleFactory.h"
 #include "../modules/GainModule.h"
 #include "../modules/ParametricEQModule.h"
 #include "../modules/GateModule.h"
@@ -14,6 +15,8 @@
 #include "../modules/DynamicEQModule.h"
 #include "../modules/MultibandCompressorModule.h"
 #include "../modules/SpectralRepairModule.h"
+#include "../modules/TransientShaperModule.h"
+#include "../modules/StereoWidthModule.h"
 
 RackColumn::RackColumn (ProcessorRack& r) : rack (r)
 {
@@ -42,10 +45,15 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
         menu.addItem (13, "Dynamic EQ");
         menu.addItem (14, "Multiband Comp");
         menu.addItem (15, "Spectral Repair");
+        menu.addSeparator ();
+        menu.addItem (16, "Transient Shaper");
+        menu.addItem (17, "Stereo Width");
 
         menu.showMenuAsync (juce::PopupMenu::Options{}.withTargetComponent (&addButton),
                             [this] (int result)
                             {
+                                if (result == 0) return;
+                                if (onBeforeStructuralChange) onBeforeStructuralChange ();
                                 std::unique_ptr<RackModule> mod;
                                 switch (result)
                                 {
@@ -94,6 +102,12 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
                                 case 15:
                                     mod = std::make_unique<SpectralRepairModule> ();
                                     break;
+                                case 16:
+                                    mod = std::make_unique<TransientShaperModule> ();
+                                    break;
+                                case 17:
+                                    mod = std::make_unique<StereoWidthModule> ();
+                                    break;
                                 default:
                                     break;
                                 }
@@ -110,10 +124,10 @@ RackColumn::~RackColumn () = default;
 
 void RackColumn::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (kBg));
+    g.fillAll (juce::Colour (AP::kBgBase));
 
     // Right divider
-    g.setColour (juce::Colour (kDiv));
+    g.setColour (juce::Colour (AP::kDiv));
     g.fillRect (getWidth () - 1, 0, 1, getHeight ());
 }
 
@@ -170,11 +184,31 @@ void RackColumn::cardSelected (RackModuleCard* card)
         onModuleSelected (card->getModule ());
 }
 
+void RackColumn::cardDuplicated (RackModuleCard* card)
+{
+    const int idx = cardIndex (card);
+    if (idx < 0) return;
+
+    const RackModule* src = card->getModule ();
+    auto clone = makeModule (src->type ());
+    if (!clone) return;
+
+    juce::ValueTree state ("Module");
+    src->getState (state);
+    clone->setState (state);
+    clone->wetDry.store (src->wetDry.load ());
+
+    if (onBeforeStructuralChange) onBeforeStructuralChange ();
+    rack.insertModule (idx + 1, std::move (clone));
+    syncWithRack ();
+}
+
 void RackColumn::cardRemoved (RackModuleCard* card)
 {
     const int idx = cardIndex (card);
     if (idx >= 0)
     {
+        if (onBeforeStructuralChange) onBeforeStructuralChange ();
         rack.removeModule (idx);
         syncWithRack ();
 
@@ -215,6 +249,7 @@ void RackColumn::cardDragEnded (RackModuleCard* /*card*/, const juce::MouseEvent
 
     if (dragStartIndex >= 0 && toIdx != dragStartIndex && toIdx != dragStartIndex + 1)
     {
+        if (onBeforeStructuralChange) onBeforeStructuralChange ();
         // Adjust destination for the gap left by the moving card
         if (toIdx > dragStartIndex)
             --toIdx;

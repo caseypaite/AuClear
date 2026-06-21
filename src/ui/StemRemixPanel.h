@@ -3,8 +3,10 @@
 #include "../PluginProcessor.h"
 #include "../engine/StemState.h"
 #include "panels/PanelHelpers.h"
+#include "panels/DownloadThread.h"
 #include <array>
 #include <memory>
+#include <vector>
 
 // ─── Single stem channel strip ────────────────────────────────────────────────
 
@@ -47,13 +49,11 @@ class StemChannelStrip : public juce::Component
 
         styleSlider (gainSlider);
         gainSlider.setRange (0.0, 2.0, 0.01);
-        gainSlider.setValue (1.0, juce::dontSendNotification);
         gainSlider.onValueChange = [this]
         { st.gain.store ((float)gainSlider.getValue (), std::memory_order_relaxed); };
 
         styleSlider (panSlider);
         panSlider.setRange (-1.0, 1.0, 0.01);
-        panSlider.setValue (0.0, juce::dontSendNotification);
         panSlider.onValueChange = [this]
         { st.pan.store ((float)panSlider.getValue (), std::memory_order_relaxed); };
 
@@ -66,6 +66,8 @@ class StemChannelStrip : public juce::Component
         }
         gainLbl.setText ("Gain", juce::dontSendNotification);
         panLbl.setText  ("Pan",  juce::dontSendNotification);
+
+        syncWithState ();
     }
 
     void paint (juce::Graphics& g) override
@@ -116,6 +118,14 @@ class StemChannelStrip : public juce::Component
         panSlider.setBounds (pr);
     }
 
+    void syncWithState ()
+    {
+        gainSlider.setValue (st.gain.load (), juce::dontSendNotification);
+        panSlider.setValue (st.pan.load (), juce::dontSendNotification);
+        soloBtn.setToggleState (st.soloed.load (), juce::dontSendNotification);
+        muteBtn.setToggleState (st.muted.load (), juce::dontSendNotification);
+    }
+
   private:
     juce::String  name;
     juce::Colour  col;
@@ -129,25 +139,34 @@ class StemChannelStrip : public juce::Component
 };
 
 // ─── Stem Remix Panel ─────────────────────────────────────────────────────────
-// Shares the same audio source as the rest of the processor (no separate file
-// picker).  The real-time Demucs inference is driven by the live processBlock
-// stream; this panel only controls the model, the enable state, and the per-stem
-// mix parameters.
 
 class StemRemixPanel : public juce::Component,
                        private juce::Timer
 {
   public:
+    struct ModelOption
+    {
+        juce::String name;
+        juce::String filename;
+        juce::String url;
+        bool isRemote;
+        juce::File localFile;
+    };
+
     explicit StemRemixPanel (AuClearAudioProcessor& p) : proc (p)
     {
         setOpaque (true);
 
         // ── Header controls ───────────────────────────────────────────────────
-        loadModelBtn.setButtonText ("Load Model...");
-        loadModelBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff2a2e37));
-        loadModelBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe8eaed));
-        loadModelBtn.onClick = [this] { browseModel (); };
-        addAndMakeVisible (loadModelBtn);
+        modelSelector.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff2a2e37));
+        modelSelector.setColour (juce::ComboBox::textColourId, juce::Colour (0xffe8eaed));
+        addAndMakeVisible (modelSelector);
+
+        browseBtn.setButtonText ("Browse...");
+        browseBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff2a2e37));
+        browseBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xffe8eaed));
+        browseBtn.onClick = [this] { browseModel (); };
+        addAndMakeVisible (browseBtn);
 
         enableBtn.setButtonText ("Enable");
         enableBtn.setClickingTogglesState (true);
@@ -162,11 +181,6 @@ class StemRemixPanel : public juce::Component,
             repaint ();
         };
         addAndMakeVisible (enableBtn);
-
-        modelLabel.setFont (juce::FontOptions (10.f));
-        modelLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9aa0ab));
-        modelLabel.setText ("No model", juce::dontSendNotification);
-        addAndMakeVisible (modelLabel);
 
         statusLabel.setFont (juce::FontOptions (10.f));
         statusLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9aa0ab));
@@ -188,16 +202,15 @@ class StemRemixPanel : public juce::Component,
         auto& sp = proc.getRealtimeStemProcessor ();
         for (int i = 0; i < 4; ++i)
         {
-            strips[i] = std::make_unique<StemChannelStrip> (
-                kDefs[i].name, juce::Colour (kDefs[i].col), sp.stems[i]);
-            addAndMakeVisible (*strips[i]);
+            strips[(size_t)i] = std::make_unique<StemChannelStrip> (
+                kDefs[(size_t)i].name, juce::Colour (kDefs[(size_t)i].col), sp.stems[(size_t)i]);
+            addAndMakeVisible (*strips[(size_t)i]);
         }
 
         // ── Sidebar ───────────────────────────────────────────────────────────
         dryMixSlider.setSliderStyle (juce::Slider::LinearHorizontal);
         dryMixSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         dryMixSlider.setRange (0.0, 1.0, 0.01);
-        dryMixSlider.setValue (0.0, juce::dontSendNotification);
         dryMixSlider.setColour (juce::Slider::thumbColourId, juce::Colour (0xff28e0c8));
         dryMixSlider.setColour (juce::Slider::trackColourId, juce::Colour (0xff2a2e37));
         dryMixSlider.onValueChange = [this]
@@ -211,10 +224,74 @@ class StemRemixPanel : public juce::Component,
         dryMixLabel.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (dryMixLabel);
 
+        modelSelector.onChange = [this]
+        {
+            int selectedIdx = modelSelector.getSelectedId () - 2;
+            if (selectedIdx >= 0 && selectedIdx < (int)modelOptions.size ())
+            {
+                const auto& opt = modelOptions[(size_t)selectedIdx];
+                if (opt.isRemote)
+                {
+                    startDownload (opt);
+                }
+                else
+                {
+                    loadModelFile (opt.localFile);
+                }
+            }
+            else
+            {
+                proc.unloadStemModel ();
+                enableBtn.setEnabled (false);
+                latencyLabel.setText ("", juce::dontSendNotification);
+            }
+        };
+
+        // Listen to processor model changes
+        proc.getRealtimeStemProcessor ().modelStatusChanged = [this]
+        {
+            populateModelSelector ();
+            auto& sProcessor = proc.getRealtimeStemProcessor ();
+            enableBtn.setEnabled (sProcessor.isModelLoaded ());
+            if (sProcessor.isModelLoaded ())
+            {
+                const double latSec = (double)sProcessor.latencySamples ()
+                                      / juce::jmax (1.0, proc.getSampleRate ());
+                latencyLabel.setText (juce::String (latSec, 1) + "s lag",
+                                      juce::dontSendNotification);
+            }
+            else
+            {
+                latencyLabel.setText ("", juce::dontSendNotification);
+            }
+        };
+
+        syncWithProcessor ();
+        populateModelSelector ();
         startTimerHz (5); // status refresh
     }
 
-    ~StemRemixPanel () override { stopTimer (); }
+    ~StemRemixPanel () override
+    {
+        stopTimer ();
+        if (downloadThread != nullptr)
+            downloadThread->stopThread (4000);
+        proc.getRealtimeStemProcessor ().modelStatusChanged = nullptr;
+    }
+
+    void syncWithProcessor ()
+    {
+        auto& sp = proc.getRealtimeStemProcessor ();
+        enableBtn.setToggleState (sp.isEnabled (), juce::dontSendNotification);
+        enableBtn.setEnabled (sp.isModelLoaded ());
+        dryMixSlider.setValue (sp.dryMix.load (), juce::dontSendNotification);
+
+        for (int i = 0; i < 4; ++i)
+        {
+            if (strips[(size_t)i] != nullptr)
+                strips[(size_t)i]->syncWithState ();
+        }
+    }
 
     // ── Component ─────────────────────────────────────────────────────────────
     void paint (juce::Graphics& g) override
@@ -251,12 +328,13 @@ class StemRemixPanel : public juce::Component,
             hdr.removeFromLeft (114); // "STEM REMIX" + dot
             enableBtn.setBounds     (hdr.removeFromRight (58).withSizeKeepingCentre (54, 20));
             hdr.removeFromRight (4);
-            loadModelBtn.setBounds  (hdr.removeFromRight (102).withSizeKeepingCentre (98, 20));
+            browseBtn.setBounds     (hdr.removeFromRight (70).withSizeKeepingCentre (66, 20));
             hdr.removeFromRight (4);
-            statusLabel.setBounds   (hdr.removeFromRight (120).withSizeKeepingCentre (118, 14));
+            modelSelector.setBounds (hdr.removeFromRight (160).withSizeKeepingCentre (156, 20));
             hdr.removeFromRight (4);
-            latencyLabel.setBounds  (hdr.removeFromRight (100).withSizeKeepingCentre (98, 12));
-            modelLabel.setBounds    (hdr.reduced (4, 3));
+            statusLabel.setBounds   (hdr.removeFromRight (100).withSizeKeepingCentre (98, 14));
+            hdr.removeFromRight (4);
+            latencyLabel.setBounds  (hdr.reduced (4, 3));
         }
 
         b.removeFromTop (kHeaderH);
@@ -286,12 +364,40 @@ class StemRemixPanel : public juce::Component,
     static constexpr int kHeaderH = 28;
     int sidebarWidth () const noexcept { return juce::jmax (130, getWidth () / 5); }
 
-    // ── Model ─────────────────────────────────────────────────────────────────
+    juce::File getSharedModelsDir () const
+    {
+        auto dir = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                       .getChildFile (".auclear")
+                       .getChildFile ("models");
+        if (! dir.exists ())
+            dir.createDirectory ();
+        return dir;
+    }
+
+    void loadModelFile (const juce::File& f)
+    {
+        enableBtn.setEnabled (false);
+        const bool ok = proc.loadStemModel (f);
+        enableBtn.setEnabled (ok);
+
+        if (ok)
+        {
+            const double latSec = (double)proc.getRealtimeStemProcessor ().latencySamples ()
+                                  / juce::jmax (1.0, proc.getSampleRate ());
+            latencyLabel.setText (juce::String (latSec, 1) + "s lag",
+                                  juce::dontSendNotification);
+        }
+        else
+        {
+            latencyLabel.setText ("Load failed", juce::dontSendNotification);
+        }
+    }
+
     void browseModel ()
     {
         fileChooser = std::make_unique<juce::FileChooser> (
             "Select Demucs ONNX model",
-            juce::File::getSpecialLocation (juce::File::userDocumentsDirectory),
+            getSharedModelsDir (),
             "*.onnx");
         fileChooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -300,28 +406,161 @@ class StemRemixPanel : public juce::Component,
                 const auto f = fc.getResult ();
                 if (! f.existsAsFile ()) return;
 
-                modelLabel.setText ("Loading...", juce::dontSendNotification);
-                enableBtn.setEnabled (false);
-
-                const bool ok = proc.loadStemModel (f);
-
-                modelLabel.setText (ok ? f.getFileNameWithoutExtension () : "Load failed",
-                                    juce::dontSendNotification);
-                enableBtn.setEnabled (ok);
-
-                if (ok)
+                auto destFile = getSharedModelsDir ().getChildFile (f.getFileName ());
+                if (f.getFullPathName () != destFile.getFullPathName ())
                 {
-                    const double latSec = (double)proc.getRealtimeStemProcessor ().latencySamples ()
-                                          / juce::jmax (1.0, proc.getSampleRate ());
-                    latencyLabel.setText (juce::String (latSec, 1) + "s lag",
-                                          juce::dontSendNotification);
+                    if (destFile.existsAsFile ())
+                        destFile.deleteFile ();
+                    f.copyFileTo (destFile);
                 }
+
+                loadModelFile (destFile);
+                populateModelSelector ();
             });
+    }
+
+    void populateModelSelector ()
+    {
+        modelSelector.clear (juce::dontSendNotification);
+        modelOptions.clear ();
+
+        struct TempDef { juce::String name; juce::String filename; juce::String url; };
+        std::vector<TempDef> defaults = {
+            { "Demucs (HTDemucs)", "htdemucs.onnx", "https://raw.githubusercontent.com/caseypaite/AuClear/main/models/htdemucs.onnx" }
+        };
+
+        auto sharedDir = getSharedModelsDir ();
+
+        for (const auto& d : defaults)
+        {
+            auto localFile = sharedDir.getChildFile (d.filename);
+            bool exists = localFile.existsAsFile ();
+            
+            ModelOption opt;
+            opt.filename = d.filename;
+            opt.url = d.url;
+            opt.localFile = localFile;
+
+            if (exists)
+            {
+                opt.name = d.name;
+                opt.isRemote = false;
+            }
+            else
+            {
+                opt.name = d.name + " (Download)";
+                opt.isRemote = true;
+            }
+            modelOptions.push_back (opt);
+        }
+
+        juce::Array<juce::File> customFiles;
+        sharedDir.findChildFiles (customFiles, juce::File::findFiles, false, "*.onnx");
+        
+        for (const auto& file : customFiles)
+        {
+            auto fname = file.getFileName ();
+            if (fname != "identity.onnx" && fname != "gate.onnx" && fname != "htdemucs.onnx")
+            {
+                ModelOption opt;
+                opt.name = file.getFileNameWithoutExtension () + " (Custom)";
+                opt.filename = fname;
+                opt.url = "";
+                opt.isRemote = false;
+                opt.localFile = file;
+                modelOptions.push_back (opt);
+            }
+        }
+
+        modelSelector.addItem ("Select Model...", 1);
+        int itemIndex = 2;
+        for (size_t i = 0; i < modelOptions.size (); ++i)
+        {
+            modelSelector.addItem (modelOptions[i].name, itemIndex++);
+        }
+
+        auto& sp = proc.getRealtimeStemProcessor ();
+        auto currentFile = sp.getModelFile ();
+        if (currentFile.existsAsFile ())
+        {
+            int selectedId = 1;
+            for (size_t i = 0; i < modelOptions.size (); ++i)
+            {
+                if (modelOptions[i].localFile.getFullPathName () == currentFile.getFullPathName ())
+                {
+                    selectedId = (int)(i + 2);
+                    break;
+                }
+            }
+            modelSelector.setSelectedId (selectedId, juce::dontSendNotification);
+        }
+        else
+        {
+            modelSelector.setSelectedId (1, juce::dontSendNotification);
+        }
+    }
+
+    void startDownload (const ModelOption& opt)
+    {
+        modelSelector.setEnabled (false);
+        browseBtn.setEnabled (false);
+        enableBtn.setEnabled (false);
+        
+        statusLabel.setText ("Connecting...", juce::dontSendNotification);
+
+        juce::Component::SafePointer<StemRemixPanel> safeThis (this);
+
+        downloadThread = std::make_unique<DownloadThread> (
+            opt.filename,
+            opt.url,
+            opt.localFile,
+            [safeThis, opt] (float progress) {
+                if (safeThis != nullptr)
+                {
+                    if (progress >= 0.f)
+                    {
+                        int pct = juce::roundToInt (progress * 100.f);
+                        safeThis->statusLabel.setText ("Downloading " + opt.filename + ": " + juce::String (pct) + "%", juce::dontSendNotification);
+                    }
+                    else
+                    {
+                        double mb = -progress / (1024.0 * 1024.0);
+                        safeThis->statusLabel.setText ("Downloading " + opt.filename + ": " + juce::String (mb, 2) + " MB", juce::dontSendNotification);
+                    }
+                }
+            },
+            [safeThis, opt] (bool success, juce::String error) {
+                if (safeThis != nullptr)
+                {
+                    safeThis->modelSelector.setEnabled (true);
+                    safeThis->browseBtn.setEnabled (true);
+
+                    if (success)
+                    {
+                        safeThis->statusLabel.setText ("Done!", juce::dontSendNotification);
+                        safeThis->loadModelFile (opt.localFile);
+                        safeThis->populateModelSelector ();
+                    }
+                    else
+                    {
+                        safeThis->statusLabel.setText ("Failed: " + error, juce::dontSendNotification);
+                        safeThis->populateModelSelector ();
+                    }
+                }
+            }
+        );
+
+        downloadThread->startThread ();
     }
 
     // ── Timer ─────────────────────────────────────────────────────────────────
     void timerCallback () override
     {
+        if (downloadThread != nullptr && ! downloadThread->isThreadRunning ())
+        {
+            downloadThread.reset ();
+        }
+
         auto& sp = proc.getRealtimeStemProcessor ();
         statusLabel.setText (sp.getStatusString (), juce::dontSendNotification);
 
@@ -337,13 +576,17 @@ class StemRemixPanel : public juce::Component,
 
     std::array<std::unique_ptr<StemChannelStrip>, 4> strips;
 
-    juce::TextButton openSourceBtn, loadModelBtn, enableBtn;
-    juce::Label      modelLabel, statusLabel, latencyLabel;
+    juce::TextButton browseBtn, enableBtn;
+    juce::ComboBox   modelSelector;
+    juce::Label      statusLabel, latencyLabel;
 
     juce::Slider dryMixSlider;
     juce::Label  dryMixLabel;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
+    std::unique_ptr<DownloadThread> downloadThread;
+
+    std::vector<ModelOption> modelOptions;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StemRemixPanel)
 };
