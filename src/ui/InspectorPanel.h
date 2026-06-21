@@ -1,18 +1,22 @@
 #pragma once
 #include <JuceHeader.h>
 #include "SpectrumAnalyzer.h"
+#include "GoniometerDisplay.h"
 #include "../dsp/SpectrumFifo.h"
+#include "../dsp/GoniometerFifo.h"
 
 /**
- * Right-hand inspector panel: spectrum analyzer + correlation/goniometer placeholder.
+ * Right-hand inspector panel: spectrum analyzer (top) + Lissajous goniometer
+ * with stereo correlation meter (bottom).
  */
 class InspectorPanel : public juce::Component
 {
   public:
-    explicit InspectorPanel (SpectrumFifo& specFifo, double sampleRate)
-        : spectrumAnalyzer (specFifo, sampleRate)
+    InspectorPanel (SpectrumFifo& specFifo, GoniometerFifo& gonioFifo, double sampleRate)
+        : spectrumAnalyzer (specFifo, sampleRate), goniometer (gonioFifo)
     {
         addAndMakeVisible (spectrumAnalyzer);
+        addAndMakeVisible (goniometer);
         addAndMakeVisible (titleLabel);
         titleLabel.setText ("Inspector", juce::dontSendNotification);
         titleLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9aa0ab));
@@ -26,30 +30,32 @@ class InspectorPanel : public juce::Component
     {
         g.fillAll (juce::Colour (0xff1e2128));
 
-        // Correlation placeholder below spectrum
-        auto b = getLocalBounds ();
-        const int corrH = 60;
-        const auto corrArea = b.removeFromBottom (corrH);
-
-        g.setColour (juce::Colour (0xff16181d));
-        g.fillRect (corrArea);
-        g.setColour (juce::Colour (0xff9aa0ab));
-        g.setFont (10.f);
-        g.drawText ("Goniometer / Correlation (Phase 5)", corrArea.toFloat (),
-                    juce::Justification::centred, false);
+        // Separator between spectrum and goniometer
+        const int sepY = titleH + specH ();
+        g.setColour (juce::Colour (0xff2a2e37));
+        g.fillRect (0, sepY, getWidth (), 1);
     }
 
     void resized () override
     {
         auto b = getLocalBounds ();
-        titleLabel.setBounds (b.removeFromTop (22));
-        b.removeFromBottom (60); // correlation placeholder
-        spectrumAnalyzer.setBounds (b.reduced (4));
+        titleLabel.setBounds (b.removeFromTop (titleH));
+        spectrumAnalyzer.setBounds (b.removeFromTop (specH ()).reduced (4, 2));
+        goniometer.setBounds (b);
     }
 
   private:
-    SpectrumAnalyzer spectrumAnalyzer;
-    juce::Label titleLabel;
+    int specH () const
+    {
+        // Give spectrum ~55% of non-title area, goniometer the rest
+        return static_cast<int> ((getHeight () - titleH) * 0.55f);
+    }
+
+    static constexpr int titleH = 22;
+
+    SpectrumAnalyzer  spectrumAnalyzer;
+    GoniometerDisplay goniometer;
+    juce::Label       titleLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (InspectorPanel)
 };

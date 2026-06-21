@@ -217,8 +217,9 @@ void ProcessorRack::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBu
         outMeters.push (v);
     }
 
-    // Spectrum analysis and loudness measurement on output
+    // Spectrum analysis, goniometer, and loudness measurement on output
     specFifo.pushSamples (buffer);
+    gonioFifo.push (buffer);
     lufs.process (buffer);
 }
 

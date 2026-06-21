@@ -8,6 +8,7 @@
 #include "CommandQueue.h"
 #include "MeterBus.h"
 #include "../dsp/SpectrumFifo.h"
+#include "../dsp/GoniometerFifo.h"
 #include "../dsp/LoudnessMeter.h"
 
 /**
@@ -58,8 +59,9 @@ class ProcessorRack
     // -----------------------------------------------------------------------
     MeterBus& inputMeters () { return inMeters; }
     MeterBus& outputMeters () { return outMeters; }
-    SpectrumFifo& spectrumFifo () { return specFifo; }
-    LoudnessMeter& loudnessMeter () { return lufs; }
+    SpectrumFifo&   spectrumFifo ()   { return specFifo; }
+    GoniometerFifo& goniometerFifo () { return gonioFifo; }
+    LoudnessMeter&  loudnessMeter ()  { return lufs; }
 
   private:
     void drainCommandQueue ();
@@ -85,8 +87,9 @@ class ProcessorRack
     // Metering
     MeterBus inMeters;
     MeterBus outMeters;
-    SpectrumFifo specFifo;
-    LoudnessMeter lufs;
+    SpectrumFifo   specFifo;
+    GoniometerFifo gonioFifo;
+    LoudnessMeter  lufs;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ProcessorRack)
 };

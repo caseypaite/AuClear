@@ -2,7 +2,7 @@
 
 AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor& p)
     : AudioProcessorEditor (&p), processorRef (p), rackColumn (p.getRack ()),
-      meterBridge (p.getRack ()), inspectorPanel (p.getRack ().spectrumFifo (), p.getSampleRate ())
+      meterBridge (p.getRack ()), inspectorPanel (p.getRack ().spectrumFifo (), p.getRack ().goniometerFifo (), p.getSampleRate ())
 {
     setLookAndFeel (&lookAndFeel);
 
