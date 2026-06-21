@@ -23,8 +23,12 @@
 #include "../modules/HumRemoverModule.h"
 #include "../modules/DeEsserModule.h"
 #include "../modules/DynamicEQModule.h"
+#include "../modules/MultibandCompressorModule.h"
+#include "../modules/SpectralRepairModule.h"
 #include "panels/DeEsserPanel.h"
 #include "panels/DynamicEQPanel.h"
+#include "panels/MultibandCompressorPanel.h"
+#include "panels/SpectralRepairPanel.h"
 
 void MainStage::paint (juce::Graphics& g)
 {
@@ -145,6 +149,16 @@ void MainStage::showModule (RackModule* module)
         case ModuleType::DynamicEQ:
             if (auto* m = dynamic_cast<DynamicEQModule*> (module))
                 activePanel = std::make_unique<DynamicEQPanel> (*m);
+            break;
+
+        case ModuleType::MultibandComp:
+            if (auto* m = dynamic_cast<MultibandCompressorModule*> (module))
+                activePanel = std::make_unique<MultibandCompressorPanel> (*m);
+            break;
+
+        case ModuleType::SpectralRepair:
+            if (auto* m = dynamic_cast<SpectralRepairModule*> (module))
+                activePanel = std::make_unique<SpectralRepairPanel> (*m);
             break;
         }
 

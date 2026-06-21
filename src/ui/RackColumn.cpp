@@ -12,6 +12,8 @@
 #include "../modules/HumRemoverModule.h"
 #include "../modules/DeEsserModule.h"
 #include "../modules/DynamicEQModule.h"
+#include "../modules/MultibandCompressorModule.h"
+#include "../modules/SpectralRepairModule.h"
 
 RackColumn::RackColumn (ProcessorRack& r) : rack (r)
 {
@@ -38,6 +40,8 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
         menu.addSeparator ();
         menu.addItem (12, "De-Esser");
         menu.addItem (13, "Dynamic EQ");
+        menu.addItem (14, "Multiband Comp");
+        menu.addItem (15, "Spectral Repair");
 
         menu.showMenuAsync (juce::PopupMenu::Options{}.withTargetComponent (&addButton),
                             [this] (int result)
@@ -83,6 +87,12 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
                                     break;
                                 case 13:
                                     mod = std::make_unique<DynamicEQModule> ();
+                                    break;
+                                case 14:
+                                    mod = std::make_unique<MultibandCompressorModule> ();
+                                    break;
+                                case 15:
+                                    mod = std::make_unique<SpectralRepairModule> ();
                                     break;
                                 default:
                                     break;

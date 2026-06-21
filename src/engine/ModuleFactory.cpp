@@ -12,6 +12,8 @@
 #include "../modules/HumRemoverModule.h"
 #include "../modules/DeEsserModule.h"
 #include "../modules/DynamicEQModule.h"
+#include "../modules/MultibandCompressorModule.h"
+#include "../modules/SpectralRepairModule.h"
 
 std::unique_ptr<RackModule> makeModule (ModuleType type)
 {
@@ -43,6 +45,10 @@ std::unique_ptr<RackModule> makeModule (ModuleType type)
         return std::make_unique<DeEsserModule> ();
     case ModuleType::DynamicEQ:
         return std::make_unique<DynamicEQModule> ();
+    case ModuleType::MultibandComp:
+        return std::make_unique<MultibandCompressorModule> ();
+    case ModuleType::SpectralRepair:
+        return std::make_unique<SpectralRepairModule> ();
     }
     return nullptr;
 }
