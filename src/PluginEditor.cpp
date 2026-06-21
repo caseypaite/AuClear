@@ -18,11 +18,16 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
     {
         mediaPlayerPanel = std::make_unique<MediaPlayerPanel> (p);
         addAndMakeVisible (*mediaPlayerPanel);
+
+        stemRemixPanel = std::make_unique<StemRemixPanel> ();
+        addAndMakeVisible (*stemRemixPanel);
     }
 
     setResizable (true, true);
-    const int h = juce::JUCEApplicationBase::isStandaloneApp () ? 620 + kPlayerHeight : 620;
-    setResizeLimits (600, 400, 2560, 1600);
+    const int h = juce::JUCEApplicationBase::isStandaloneApp ()
+                      ? 620 + kPlayerHeight + kStemPanelHeight
+                      : 620;
+    setResizeLimits (600, 500, 2560, 1800);
     setSize (1000, h);
 
     startTimerHz (10);
@@ -31,6 +36,7 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
 AuClearAudioProcessorEditor::~AuClearAudioProcessorEditor ()
 {
     stopTimer ();
+    stemRemixPanel.reset ();   // cancel any running jobs before other teardown
     mediaPlayerPanel.reset (); // unloads transport before anything else tears down
     setLookAndFeel (nullptr);
 }
@@ -45,6 +51,9 @@ void AuClearAudioProcessorEditor::resized ()
     auto bounds = getLocalBounds ();
 
     header.setBounds (bounds.removeFromTop (48));
+
+    if (stemRemixPanel)
+        stemRemixPanel->setBounds (bounds.removeFromBottom (kStemPanelHeight));
 
     if (mediaPlayerPanel)
         mediaPlayerPanel->setBounds (bounds.removeFromBottom (kPlayerHeight));

@@ -179,6 +179,11 @@ target_sources(AuClear PRIVATE
     src/ai/AIEngine.cpp
     src/modules/DenoiseModule.cpp
     src/modules/HumRemoverModule.cpp
+    # Offline job manager + Demucs runner (Phase 4)
+    src/offline/ArtifactCache.cpp
+    src/offline/OfflineJobManager.cpp
+    src/offline/DemucsSession.cpp
+    src/offline/DemucsRunner.cpp
     # File I/O (standalone only)
     src/io/FileProcessor.cpp
     # UI

@@ -9,6 +9,7 @@
 #include "ui/MeterBridge.h"
 #include "ui/InspectorPanel.h"
 #include "ui/MediaPlayerPanel.h"
+#include "ui/StemRemixPanel.h"
 
 class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer
 {
@@ -31,11 +32,13 @@ class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private j
     MeterBridge meterBridge;
     InspectorPanel inspectorPanel;
 
-    // Standalone-only: media-player strip along the bottom
+    // Standalone-only panels along the bottom
     std::unique_ptr<MediaPlayerPanel> mediaPlayerPanel;
+    std::unique_ptr<StemRemixPanel>   stemRemixPanel;
 
-    static constexpr juce::uint32 kDivider = 0xff2a2e37;
-    static constexpr int kPlayerHeight = 110;
+    static constexpr juce::uint32 kDivider       = 0xff2a2e37;
+    static constexpr int          kPlayerHeight   = 110;
+    static constexpr int          kStemPanelHeight = 210;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AuClearAudioProcessorEditor)
 };
