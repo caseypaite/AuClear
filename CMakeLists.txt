@@ -179,8 +179,8 @@ target_sources(AuClear PRIVATE
     src/ai/AIEngine.cpp
     src/modules/DenoiseModule.cpp
     src/modules/HumRemoverModule.cpp
-    # Stem player — offline stem mix routing (Phase 4b)
-    src/engine/StemPlayer.cpp
+    # Real-time stem separation (Phase 4c)
+    src/engine/RealtimeStemProcessor.cpp
     # Offline job manager + Demucs runner (Phase 4)
     src/offline/ArtifactCache.cpp
     src/offline/OfflineJobManager.cpp

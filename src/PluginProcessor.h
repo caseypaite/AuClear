@@ -2,8 +2,7 @@
 
 #include <JuceHeader.h>
 #include "engine/ProcessorRack.h"
-#include "engine/StemPlayer.h"
-#include <array>
+#include "engine/RealtimeStemProcessor.h"
 
 class AuClearAudioProcessor : public juce::AudioProcessor
 {
@@ -34,27 +33,24 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    ProcessorRack& getRack () { return rack; }
-    float getCpuLoad () const { return loadMeasurer.getLoadAsProportion (); }
+    ProcessorRack& getRack ()    { return rack; }
+    float getCpuLoad () const    { return loadMeasurer.getLoadAsProportion (); }
 
     // ─── Media player (standalone mode) ──────────────────────────────────────
     bool loadMediaFile (const juce::File& file);
     void unloadMediaFile ();
-
     bool isMediaFileLoaded () const noexcept
     {
         return mediaFileLoaded.load (std::memory_order_relaxed);
     }
-
     juce::AudioTransportSource& getTransportSource () { return transportSource; }
     juce::AudioFormatManager&   getFormatManager ()   { return formatManager; }
 
-    // ─── Stem player (standalone mode, Phase 4b) ──────────────────────────────
-    // Call on the message thread after Demucs separation finishes.
-    // Files must be in stem order: 0=drums, 1=bass, 2=other, 3=vocals.
-    bool loadStems (const std::array<juce::File, 4>& files);
-    void unloadStems ();
-    StemPlayer& getStemPlayer () { return stemPlayer; }
+    // ─── Real-time stem processor (standalone + plugin mode, Phase 4b) ────────
+    // loadStemModel / unloadStemModel are message-thread.
+    bool                   loadStemModel (const juce::File& onnxPath);
+    void                   unloadStemModel ();
+    RealtimeStemProcessor& getRealtimeStemProcessor () { return realtimeStemProc; }
 
   private:
     ProcessorRack rack;
@@ -67,8 +63,7 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     std::atomic<bool> mediaFileLoaded{false};
     std::atomic<bool> sourceIsMono{false};
 
-    StemPlayer              stemPlayer;
-    juce::AudioBuffer<float> dryWorkBuffer; // pre-allocated scratch for stem dry blend
+    RealtimeStemProcessor realtimeStemProc;
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout ();
 

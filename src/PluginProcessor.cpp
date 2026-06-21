@@ -36,17 +36,13 @@ void AuClearAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     setLatencySamples (rack.totalLatencySamples ());
 
     transportSource.prepareToPlay (samplesPerBlock, sampleRate);
-    stemPlayer.prepare (samplesPerBlock, sampleRate);
-
-    // Pre-allocate dry-blend scratch (avoidReallocating keeps the audio thread free).
-    dryWorkBuffer.setSize (getTotalNumOutputChannels (), samplesPerBlock,
-                           false, true, false);
+    realtimeStemProc.prepare (samplesPerBlock, sampleRate);
 }
 
 void AuClearAudioProcessor::releaseResources ()
 {
     transportSource.releaseResources ();
-    stemPlayer.releaseResources ();
+    realtimeStemProc.releaseResources ();
     rack.reset ();
 }
 
@@ -68,35 +64,10 @@ void AuClearAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const int nSamples = buffer.getNumSamples ();
     const int nCh      = buffer.getNumChannels ();
 
-    if (stemPlayer.isActive ())
-    {
-        // Fill dry buffer from transport for the blend path.
-        // avoidReallocating=true: never allocates if prepareToPlay was called correctly.
-        dryWorkBuffer.setSize (nCh, nSamples, false, false, true);
-        dryWorkBuffer.clear ();
-
-        if (mediaFileLoaded.load (std::memory_order_acquire))
-        {
-            juce::AudioSourceChannelInfo dryInfo (&dryWorkBuffer, 0, nSamples);
-            transportSource.getNextAudioBlock (dryInfo);
-            if (nCh > 1 && sourceIsMono.load (std::memory_order_relaxed))
-                dryWorkBuffer.copyFrom (1, 0, dryWorkBuffer, 0, 0, nSamples);
-        }
-        else
-        {
-            // Device-input dry path: copy the input into dryWorkBuffer.
-            for (int ch = 0; ch < nCh; ++ch)
-                dryWorkBuffer.copyFrom (ch, 0, buffer, ch, 0, nSamples);
-        }
-
-        // Sync stem reader positions with the transport before reading.
-        stemPlayer.setPlaying (transportSource.isPlaying ());
-        stemPlayer.syncPosition (transportSource.getCurrentPosition ());
-
-        buffer.clear ();
-        stemPlayer.fillNextAudioBlock (buffer, dryWorkBuffer, nSamples);
-    }
-    else if (mediaFileLoaded.load (std::memory_order_acquire))
+    // ── Source selection ──────────────────────────────────────────────────────
+    // Transport replaces device input when a media file is loaded; otherwise
+    // pass device input through (extra input channels cleared).
+    if (mediaFileLoaded.load (std::memory_order_acquire))
     {
         buffer.clear ();
         juce::AudioSourceChannelInfo info (&buffer, 0, nSamples);
@@ -110,11 +81,20 @@ void AuClearAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
             buffer.clear (i, 0, nSamples);
     }
 
-    const bool globalBypass = *apvts.getRawParameterValue ("global_bypass") > 0.5f;
+    // ── Real-time stem separation ─────────────────────────────────────────────
+    // process() pushes the block into the input ring and, once the Demucs
+    // inference thread has produced output, mixes the separated stems back
+    // (with per-stem gain/pan/mute/solo and a dry blend).  While the output
+    // ring is empty (initial buffering or inference running), the buffer is
+    // left unchanged so the dry signal plays through.
+    realtimeStemProc.process (buffer, nSamples);
 
+    // ── DSP rack ──────────────────────────────────────────────────────────────
+    const bool globalBypass = *apvts.getRawParameterValue ("global_bypass") > 0.5f;
     if (! globalBypass)
         rack.processBlock (buffer, midiMessages);
 
+    // Keep host PDC in sync if the rack latency changed.
     const int newLat = rack.totalLatencySamples ();
     if (newLat != getLatencySamples ())
         setLatencySamples (newLat);
@@ -157,14 +137,14 @@ void AuClearAudioProcessor::unloadMediaFile ()
 }
 
 //==============================================================================
-bool AuClearAudioProcessor::loadStems (const std::array<juce::File, 4>& files)
+bool AuClearAudioProcessor::loadStemModel (const juce::File& onnxPath)
 {
-    return stemPlayer.loadStems (files, formatManager);
+    return realtimeStemProc.loadModel (onnxPath);
 }
 
-void AuClearAudioProcessor::unloadStems ()
+void AuClearAudioProcessor::unloadStemModel ()
 {
-    stemPlayer.unloadStems ();
+    realtimeStemProc.unloadModel ();
 }
 
 //==============================================================================
@@ -175,29 +155,25 @@ juce::AudioProcessorEditor* AuClearAudioProcessor::createEditor ()
 
 bool AuClearAudioProcessor::hasEditor () const { return true; }
 
-//==============================================================================
-const juce::String AuClearAudioProcessor::getName () const { return JucePlugin_Name; }
-bool AuClearAudioProcessor::acceptsMidi ()  const { return false; }
-bool AuClearAudioProcessor::producesMidi () const { return false; }
-bool AuClearAudioProcessor::isMidiEffect () const { return false; }
-double AuClearAudioProcessor::getTailLengthSeconds () const { return 0.0; }
+const juce::String AuClearAudioProcessor::getName ()        const { return JucePlugin_Name; }
+bool AuClearAudioProcessor::acceptsMidi ()                  const { return false; }
+bool AuClearAudioProcessor::producesMidi ()                 const { return false; }
+bool AuClearAudioProcessor::isMidiEffect ()                 const { return false; }
+double AuClearAudioProcessor::getTailLengthSeconds ()       const { return 0.0; }
 
-//==============================================================================
-int AuClearAudioProcessor::getNumPrograms ()              { return 1; }
-int AuClearAudioProcessor::getCurrentProgram ()           { return 0; }
-void AuClearAudioProcessor::setCurrentProgram (int)       {}
-const juce::String AuClearAudioProcessor::getProgramName (int) { return {}; }
+int AuClearAudioProcessor::getNumPrograms ()                      { return 1; }
+int AuClearAudioProcessor::getCurrentProgram ()                   { return 0; }
+void AuClearAudioProcessor::setCurrentProgram (int)               {}
+const juce::String AuClearAudioProcessor::getProgramName (int)    { return {}; }
 void AuClearAudioProcessor::changeProgramName (int, const juce::String&) {}
 
 //==============================================================================
 void AuClearAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState ();
-
     juce::ValueTree rackTree ("Rack");
     rack.getState (rackTree);
     state.appendChild (rackTree, nullptr);
-
     if (auto xml = state.createXml ())
         copyXmlToBinary (*xml, destData);
 }
@@ -207,18 +183,14 @@ void AuClearAudioProcessor::setStateInformation (const void* data, int sizeInByt
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         auto state = juce::ValueTree::fromXml (*xml);
-        if (! state.isValid ())
-            return;
-
+        if (! state.isValid ()) return;
         apvts.replaceState (state);
-
         auto rackTree = state.getChildWithName ("Rack");
         if (rackTree.isValid ())
             rack.setState (rackTree, makeModule);
     }
 }
 
-//==============================================================================
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter ()
 {
     return new AuClearAudioProcessor ();

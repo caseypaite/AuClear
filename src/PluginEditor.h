@@ -38,7 +38,7 @@ class AuClearAudioProcessorEditor : public juce::AudioProcessorEditor, private j
 
     static constexpr juce::uint32 kDivider       = 0xff2a2e37;
     static constexpr int          kPlayerHeight   = 110;
-    static constexpr int          kStemPanelHeight = 210;
+    static constexpr int          kStemPanelHeight = 165;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AuClearAudioProcessorEditor)
 };
