@@ -181,6 +181,9 @@ target_sources(AuClear PRIVATE
     src/modules/HumRemoverModule.cpp
     # Real-time stem separation (Phase 4c)
     src/engine/RealtimeStemProcessor.cpp
+    # Phase 5 — Dynamic processing
+    src/modules/DeEsserModule.cpp
+    src/modules/DynamicEQModule.cpp
     # Offline job manager + Demucs runner (Phase 4)
     src/offline/ArtifactCache.cpp
     src/offline/OfflineJobManager.cpp

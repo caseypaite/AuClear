@@ -10,6 +10,8 @@
 #include "../modules/UtilityModule.h"
 #include "../modules/DenoiseModule.h"
 #include "../modules/HumRemoverModule.h"
+#include "../modules/DeEsserModule.h"
+#include "../modules/DynamicEQModule.h"
 
 std::unique_ptr<RackModule> makeModule (ModuleType type)
 {
@@ -37,6 +39,10 @@ std::unique_ptr<RackModule> makeModule (ModuleType type)
         return std::make_unique<DenoiseModule> ();
     case ModuleType::HumRemover:
         return std::make_unique<HumRemoverModule> ();
+    case ModuleType::DeEsser:
+        return std::make_unique<DeEsserModule> ();
+    case ModuleType::DynamicEQ:
+        return std::make_unique<DynamicEQModule> ();
     }
     return nullptr;
 }

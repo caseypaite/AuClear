@@ -10,6 +10,8 @@
 #include "../modules/UtilityModule.h"
 #include "../modules/DenoiseModule.h"
 #include "../modules/HumRemoverModule.h"
+#include "../modules/DeEsserModule.h"
+#include "../modules/DynamicEQModule.h"
 
 RackColumn::RackColumn (ProcessorRack& r) : rack (r)
 {
@@ -33,6 +35,9 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
         menu.addSeparator ();
         menu.addItem (10, "AI Denoise");
         menu.addItem (11, "Hum Remover");
+        menu.addSeparator ();
+        menu.addItem (12, "De-Esser");
+        menu.addItem (13, "Dynamic EQ");
 
         menu.showMenuAsync (juce::PopupMenu::Options{}.withTargetComponent (&addButton),
                             [this] (int result)
@@ -72,6 +77,12 @@ RackColumn::RackColumn (ProcessorRack& r) : rack (r)
                                     break;
                                 case 11:
                                     mod = std::make_unique<HumRemoverModule> ();
+                                    break;
+                                case 12:
+                                    mod = std::make_unique<DeEsserModule> ();
+                                    break;
+                                case 13:
+                                    mod = std::make_unique<DynamicEQModule> ();
                                     break;
                                 default:
                                     break;

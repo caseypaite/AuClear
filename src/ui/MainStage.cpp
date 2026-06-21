@@ -21,6 +21,10 @@
 #include "../modules/UtilityModule.h"
 #include "../modules/DenoiseModule.h"
 #include "../modules/HumRemoverModule.h"
+#include "../modules/DeEsserModule.h"
+#include "../modules/DynamicEQModule.h"
+#include "panels/DeEsserPanel.h"
+#include "panels/DynamicEQPanel.h"
 
 void MainStage::paint (juce::Graphics& g)
 {
@@ -131,6 +135,16 @@ void MainStage::showModule (RackModule* module)
         case ModuleType::HumRemover:
             if (auto* m = dynamic_cast<HumRemoverModule*> (module))
                 activePanel = std::make_unique<HumRemoverPanel> (*m);
+            break;
+
+        case ModuleType::DeEsser:
+            if (auto* m = dynamic_cast<DeEsserModule*> (module))
+                activePanel = std::make_unique<DeEsserPanel> (*m);
+            break;
+
+        case ModuleType::DynamicEQ:
+            if (auto* m = dynamic_cast<DynamicEQModule*> (module))
+                activePanel = std::make_unique<DynamicEQPanel> (*m);
             break;
         }
 
