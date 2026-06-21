@@ -45,6 +45,12 @@ class OnnxSession
     // Audio thread only; no allocations.
     bool runFrame (const float* in, float* out);
 
+    // Run one stereo frame. inL/inR/outL/outR must point to frameSize() floats.
+    // Audio thread only; no allocations.
+    bool runFrame (const float* inL, const float* inR, float* outL, float* outR);
+
+    bool isStereo () const;
+
     // Run a dummy frame to trigger JIT compilation before the first real call.
     bool preWarm ();
 

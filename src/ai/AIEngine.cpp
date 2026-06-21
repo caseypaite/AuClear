@@ -23,9 +23,9 @@ struct AIEngine::ChannelState
     int dryWrite = 0;
     int dryRead = 0;
 
-    void reset (double hostSR, double modelSR, int maxHostBlock, int modelFrameSize, int totalLatencyHostSamples)
+    void reset (double hostSR, double modelSR, int maxHostBlock, int modelFrameSize, int totalLatencyHostSamples, int numChannels = 1)
     {
-        reBlocker.reset (modelFrameSize);
+        reBlocker.reset (modelFrameSize, numChannels);
 
         downSampler.reset ();
         upSampler.reset ();
@@ -201,21 +201,30 @@ void AIEngine::prepare (double sampleRate, int maxBlockSize)
     const int frameHost = (int)std::ceil ((double)modelFrame * sampleRate / modelSR);
     cachedLatency = frameHost;
 
+    const bool isStereo = isLoaded () && sessions[0]->isStereo ();
+
     constexpr int numCh = 2; // always prepare stereo
     channels.resize ((size_t)numCh);
     for (int ch = 0; ch < numCh; ++ch)
     {
         channels[(size_t)ch] = std::make_unique<ChannelState> ();
-        channels[(size_t)ch]->reset (sampleRate, modelSR, maxBlockSize, modelFrame, cachedLatency);
+    }
+    if (numCh >= 2)
+    {
+        channels[0]->reset (sampleRate, modelSR, maxBlockSize, modelFrame, cachedLatency, isStereo ? 2 : 1);
+        channels[1]->reset (sampleRate, modelSR, maxBlockSize, modelFrame, cachedLatency, 1);
     }
     prepared = true;
 }
 
 void AIEngine::reset ()
 {
-    for (auto& ch : channels)
-        if (ch)
-            ch->reset (hostSR, modelSR, maxBlock, modelFrame, cachedLatency);
+    const bool isStereo = isLoaded () && sessions[0]->isStereo ();
+    if (channels.size () >= 2 && channels[0] && channels[1])
+    {
+        channels[0]->reset (hostSR, modelSR, maxBlock, modelFrame, cachedLatency, isStereo ? 2 : 1);
+        channels[1]->reset (hostSR, modelSR, maxBlock, modelFrame, cachedLatency, 1);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -225,11 +234,130 @@ void AIEngine::process (juce::AudioBuffer<float>& buffer, float strength, bool l
         return;
 
     const int numCh = std::min (buffer.getNumChannels (), (int)channels.size ());
+    if (numCh == 0)
+        return;
 
+    const bool isStereo = isLoaded () && sessions[0]->isStereo ();
     const juce::int64 t0 = juce::Time::getHighResolutionTicks ();
 
-    for (int ch = 0; ch < numCh; ++ch)
-        processChannel (ch, buffer, strength, listen);
+    if (isStereo && numCh >= 2)
+    {
+        // ── Stereo model path (joint processing) ───────────────────────────
+        auto& cs0 = *channels[0];
+        auto& cs1 = *channels[1];
+        
+        float* wr0 = buffer.getWritePointer (0);
+        float* wr1 = buffer.getWritePointer (1);
+        const int n = buffer.getNumSamples ();
+
+        // 1. Capture dry into rings
+        const int cap0 = (int)cs0.dryRing.size ();
+        for (int i = 0; i < n; ++i)
+        {
+            cs0.dryRing[(size_t)(cs0.dryWrite % cap0)] = wr0[i];
+            cs0.dryWrite = (cs0.dryWrite + 1) % cap0;
+        }
+        const int cap1 = (int)cs1.dryRing.size ();
+        for (int i = 0; i < n; ++i)
+        {
+            cs1.dryRing[(size_t)(cs1.dryWrite % cap1)] = wr1[i];
+            cs1.dryWrite = (cs1.dryWrite + 1) % cap1;
+        }
+
+        // 2. Resample host -> model SR
+        const double downRatio = hostSR / modelSR;
+        int nModel;
+
+        if (std::abs (hostSR - modelSR) < 0.5)
+        {
+            nModel = n;
+            std::memcpy (cs0.modelIn.data (), wr0, (size_t)n * sizeof (float));
+            std::memcpy (cs1.modelIn.data (), wr1, (size_t)n * sizeof (float));
+        }
+        else
+        {
+            nModel = (int)std::ceil ((double)n / downRatio);
+            nModel = std::min (nModel, (int)cs0.modelIn.size ());
+
+            // Downsample Left
+            const int capL = std::min (n, (int)cs0.resampleInPad.size ());
+            std::memcpy (cs0.resampleInPad.data (), wr0, (size_t)capL * sizeof (float));
+            const int padL = std::min (16, (int)cs0.resampleInPad.size () - capL);
+            if (padL > 0) std::fill (cs0.resampleInPad.begin () + capL, cs0.resampleInPad.begin () + capL + padL, 0.f);
+            cs0.downSampler.process (downRatio, cs0.resampleInPad.data (), cs0.modelIn.data (), nModel);
+
+            // Downsample Right
+            const int capR = std::min (n, (int)cs1.resampleInPad.size ());
+            std::memcpy (cs1.resampleInPad.data (), wr1, (size_t)capR * sizeof (float));
+            const int padR = std::min (16, (int)cs1.resampleInPad.size () - capR);
+            if (padR > 0) std::fill (cs1.resampleInPad.begin () + capR, cs1.resampleInPad.begin () + capR + padR, 0.f);
+            cs1.downSampler.process (downRatio, cs1.resampleInPad.data (), cs1.modelIn.data (), nModel);
+        }
+
+        // 3. Stereo re-block + joint inference
+        const float* srcPtrs[2] = { cs0.modelIn.data (), cs1.modelIn.data () };
+        cs0.reBlocker.push (srcPtrs, nModel, [this] (const float* const* in, float* const* out)
+        {
+            if (!sessions[0]->runFrame (in[0], in[1], out[0], out[1]))
+            {
+                std::memcpy (out[0], in[0], (size_t)modelFrame * sizeof (float));
+                std::memcpy (out[1], in[1], (size_t)modelFrame * sizeof (float));
+            }
+        });
+
+        float* dstPtrs[2] = { cs0.modelOut.data (), cs1.modelOut.data () };
+        cs0.reBlocker.pop (dstPtrs, nModel);
+
+        // Pad modelOuts for LagrangeInterpolator
+        const int padStart0 = std::min (nModel, (int)cs0.modelOut.size ());
+        const int padSize0 = std::min (16, (int)cs0.modelOut.size () - padStart0);
+        if (padSize0 > 0) std::fill (cs0.modelOut.begin () + padStart0, cs0.modelOut.begin () + padStart0 + padSize0, 0.f);
+
+        const int padStart1 = std::min (nModel, (int)cs1.modelOut.size ());
+        const int padSize1 = std::min (16, (int)cs1.modelOut.size () - padStart1);
+        if (padSize1 > 0) std::fill (cs1.modelOut.begin () + padStart1, cs1.modelOut.begin () + padStart1 + padSize1, 0.f);
+
+        // 4. Resample model -> host SR
+        if (std::abs (hostSR - modelSR) < 0.5)
+        {
+            std::memcpy (cs0.wetHost.data (), cs0.modelOut.data (), (size_t)n * sizeof (float));
+            std::memcpy (cs1.wetHost.data (), cs1.modelOut.data (), (size_t)n * sizeof (float));
+        }
+        else
+        {
+            const double upRatio = modelSR / hostSR;
+            cs0.upSampler.process (upRatio, cs0.modelOut.data (), cs0.wetHost.data (), n);
+            cs1.upSampler.process (upRatio, cs1.modelOut.data (), cs1.wetHost.data (), n);
+        }
+
+        // 5. Mix dry and wet back to buffer
+        for (int i = 0; i < n; ++i)
+        {
+            const float dry0 = cs0.dryRing[(size_t)(cs0.dryRead % cap0)];
+            cs0.dryRead = (cs0.dryRead + 1) % cap0;
+            const float wet0 = cs0.wetHost[(size_t)i];
+            
+            if (listen)
+                wr0[i] = dry0 - wet0;
+            else
+                wr0[i] = dry0 + strength * (wet0 - dry0);
+
+            const float dry1 = cs1.dryRing[(size_t)(cs1.dryRead % cap1)];
+            cs1.dryRead = (cs1.dryRead + 1) % cap1;
+            const float wet1 = cs1.wetHost[(size_t)i];
+
+            if (listen)
+                wr1[i] = dry1 - wet1;
+            else
+                wr1[i] = dry1 + strength * (wet1 - dry1);
+        }
+    }
+    else
+    {
+        // ── Mono model path (existing separate loop) ───────────────────────
+        for (int ch = 0; ch < numCh; ++ch)
+            processChannel (ch, buffer, strength, listen);
+    }
 
     const double elapsedSec = (double)(juce::Time::getHighResolutionTicks () - t0) /
                               (double)juce::Time::getHighResolutionTicksPerSecond ();
@@ -290,14 +418,16 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
     }
 
     // 3. Re-block + inference
-    cs.reBlocker.push (cs.modelIn.data (), nModel,
-                       [this, ch] (const float* in, float* out)
+    const float* srcPtr = cs.modelIn.data ();
+    cs.reBlocker.push (&srcPtr, nModel,
+                       [this, ch] (const float* const* in, float* const* out)
                        {
-                           if (!sessions[(size_t)ch]->runFrame (in, out))
-                               std::memcpy (out, in, (size_t)modelFrame * sizeof (float));
+                           if (!sessions[(size_t)ch]->runFrame (in[0], out[0]))
+                               std::memcpy (out[0], in[0], (size_t)modelFrame * sizeof (float));
                        });
 
-    cs.reBlocker.pop (cs.modelOut.data (), nModel);
+    float* dstPtr = cs.modelOut.data ();
+    cs.reBlocker.pop (&dstPtr, nModel);
 
     // LagrangeInterpolator may read past the end of modelOut — zero-pad it
     const int padStart = std::min (nModel, (int)cs.modelOut.size ());

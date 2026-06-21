@@ -23,14 +23,19 @@ struct OnnxSession::Impl
 #endif
 
     std::string inputName;
+    std::string inputName2;
     std::string outputName;
+    std::string outputName2;
     int fSize = 0;
     Status status = Status::Idle;
     std::string lastError;
+    bool isStereoModel = false;
 
     // Pre-allocated buffers — no alloc in runFrame after init.
     std::vector<float> inBuf;
+    std::vector<float> inBuf2;
     std::vector<float> outBuf;
+    std::vector<float> outBuf2;
     std::vector<int64_t> shape;
 
     // Atomic "safe to call runFrame" flag. Set by makeReady() AFTER loadModel()
@@ -79,9 +84,9 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
         size_t numInputs = impl.session->GetInputCount ();
         size_t numOutputs = impl.session->GetOutputCount ();
 
-        if (numInputs != 1 || numOutputs != 1)
+        if (! ((numInputs == 1 && numOutputs == 1) || (numInputs == 2 && numOutputs == 2)))
         {
-            std::string msg = "Model must have exactly 1 input and 1 output. Found " 
+            std::string msg = "Model must have exactly 1 input and 1 output (mono) or 2 inputs and 2 outputs (stereo). Found " 
                               + std::to_string (numInputs) + " inputs, " 
                               + std::to_string (numOutputs) + " outputs. ";
             
@@ -113,12 +118,24 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
             return false;
         }
 
+        impl.isStereoModel = (numInputs == 2);
+
         // Get actual input & output names dynamically
         auto inputNameAllocated = impl.session->GetInputNameAllocated (0, alloc);
         impl.inputName = inputNameAllocated.get ();
+        if (impl.isStereoModel)
+        {
+            auto inputNameAllocated2 = impl.session->GetInputNameAllocated (1, alloc);
+            impl.inputName2 = inputNameAllocated2.get ();
+        }
 
         auto outputNameAllocated = impl.session->GetOutputNameAllocated (0, alloc);
         impl.outputName = outputNameAllocated.get ();
+        if (impl.isStereoModel)
+        {
+            auto outputNameAllocated2 = impl.session->GetOutputNameAllocated (1, alloc);
+            impl.outputName2 = outputNameAllocated2.get ();
+        }
 
         auto typeInfo = impl.session->GetInputTypeInfo (0);
         auto shape = typeInfo.GetTensorTypeAndShapeInfo ().GetShape ();
@@ -150,6 +167,18 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
 
         impl.inBuf.assign ((size_t)impl.fSize, 0.f);
         impl.outBuf.assign ((size_t)impl.fSize, 0.f);
+        if (impl.isStereoModel)
+        {
+            impl.inBuf2.assign ((size_t)impl.fSize, 0.f);
+            impl.outBuf2.assign ((size_t)impl.fSize, 0.f);
+        }
+        else
+        {
+            impl.inBuf2.clear ();
+            impl.outBuf2.clear ();
+            impl.inputName2.clear ();
+            impl.outputName2.clear ();
+        }
         impl.status = Status::Ready;
         return true;
     }
@@ -247,6 +276,55 @@ bool OnnxSession::runFrame (const float* in, float* out)
 #endif
 }
 
+bool OnnxSession::runFrame (const float* inL, const float* inR, float* outL, float* outR)
+{
+#if !AUCLEAR_HAS_ONNXRUNTIME
+    (void)inL; (void)inR; (void)outL; (void)outR;
+    return false;
+#else
+    if (! pImpl->ready.load (std::memory_order_acquire))
+        return false;
+
+    auto& impl = *pImpl;
+    if (! impl.session || ! impl.isStereoModel)
+        return false;
+
+    std::memcpy (impl.inBuf.data (), inL, (size_t)impl.fSize * sizeof (float));
+    std::memcpy (impl.inBuf2.data (), inR, (size_t)impl.fSize * sizeof (float));
+
+    const char* inNames[2] = { impl.inputName.c_str (), impl.inputName2.c_str () };
+    const char* outNames[2] = { impl.outputName.c_str (), impl.outputName2.c_str () };
+
+    Ort::Value inTensors[2] = {
+        Ort::Value::CreateTensor<float> (impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
+                                         impl.shape.data (), impl.shape.size ()),
+        Ort::Value::CreateTensor<float> (impl.memInfo, impl.inBuf2.data (), (size_t)impl.fSize,
+                                         impl.shape.data (), impl.shape.size ())
+    };
+
+    try
+    {
+        auto outputs =
+            impl.session->Run (Ort::RunOptions{nullptr}, inNames, inTensors, 2, outNames, 2);
+
+        const float* ptrL = outputs[0].GetTensorData<float> ();
+        const float* ptrR = outputs[1].GetTensorData<float> ();
+        std::memcpy (outL, ptrL, (size_t)impl.fSize * sizeof (float));
+        std::memcpy (outR, ptrR, (size_t)impl.fSize * sizeof (float));
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+#endif
+}
+
+bool OnnxSession::isStereo () const
+{
+    return pImpl->isStereoModel;
+}
+
 bool OnnxSession::preWarm ()
 {
     // preWarm() is called on the message thread before makeReady(), so the
@@ -263,17 +341,36 @@ bool OnnxSession::preWarm ()
     std::vector<float> dummyOut ((size_t)impl.fSize, 0.f);
 
     std::memcpy (impl.inBuf.data (), dummy.data (), (size_t)impl.fSize * sizeof (float));
-    const char* inName  = impl.inputName.c_str ();
-    const char* outName = impl.outputName.c_str ();
+    if (impl.isStereoModel)
+        std::memcpy (impl.inBuf2.data (), dummy.data (), (size_t)impl.fSize * sizeof (float));
+
     try
     {
-        Ort::Value inTensor = Ort::Value::CreateTensor<float> (
-            impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
-            impl.shape.data (), impl.shape.size ());
-        auto outputs = impl.session->Run (Ort::RunOptions{nullptr}, &inName, &inTensor, 1,
-                                          &outName, 1);
-        const float* ptr = outputs[0].GetTensorData<float> ();
-        std::memcpy (dummyOut.data (), ptr, (size_t)impl.fSize * sizeof (float));
+        if (impl.isStereoModel)
+        {
+            const char* inNames[2] = { impl.inputName.c_str (), impl.inputName2.c_str () };
+            const char* outNames[2] = { impl.outputName.c_str (), impl.outputName2.c_str () };
+            Ort::Value inTensors[2] = {
+                Ort::Value::CreateTensor<float> (impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
+                                                 impl.shape.data (), impl.shape.size ()),
+                Ort::Value::CreateTensor<float> (impl.memInfo, impl.inBuf2.data (), (size_t)impl.fSize,
+                                                 impl.shape.data (), impl.shape.size ())
+            };
+            auto outputs = impl.session->Run (Ort::RunOptions{nullptr}, inNames, inTensors, 2,
+                                              outNames, 2);
+        }
+        else
+        {
+            const char* inName  = impl.inputName.c_str ();
+            const char* outName = impl.outputName.c_str ();
+            Ort::Value inTensor = Ort::Value::CreateTensor<float> (
+                impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
+                impl.shape.data (), impl.shape.size ());
+            auto outputs = impl.session->Run (Ort::RunOptions{nullptr}, &inName, &inTensor, 1,
+                                              &outName, 1);
+            const float* ptr = outputs[0].GetTensorData<float> ();
+            std::memcpy (dummyOut.data (), ptr, (size_t)impl.fSize * sizeof (float));
+        }
         return true;
     }
     catch (...)
