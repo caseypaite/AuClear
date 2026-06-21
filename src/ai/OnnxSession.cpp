@@ -38,6 +38,22 @@ struct OnnxSession::Impl
     std::vector<float> outBuf2;
     std::vector<int64_t> shape;
 
+    struct StateTensor
+    {
+        std::string name;
+        std::vector<int64_t> shape;
+        std::vector<float> data;
+    };
+
+    std::vector<StateTensor> stateInputs;
+    std::vector<std::string> stateOutputNames;
+
+    std::vector<const char*> runInNames;
+    std::vector<const char*> runOutNames;
+#if AUCLEAR_HAS_ONNXRUNTIME
+    std::vector<Ort::Value> runInTensors;
+#endif
+
     // Atomic "safe to call runFrame" flag. Set by makeReady() AFTER loadModel()
     // + preWarm() complete so the audio thread never races on session/inBuf/outBuf.
     // Cleared at the START of unloadModel() so the audio thread stops using the
@@ -225,6 +241,60 @@ bool OnnxSession::loadModel (const std::string& modelPath, int targetFrameSize)
             impl.inputName2.clear ();
             impl.outputName2.clear ();
         }
+
+        // 4. Discover state inputs and outputs
+        impl.stateInputs.clear ();
+        impl.stateOutputNames.clear ();
+
+        for (size_t i = 0; i < numInputs; ++i)
+        {
+            auto nameAlloc = impl.session->GetInputNameAllocated (i, alloc);
+            std::string name = nameAlloc.get ();
+            if (name == impl.inputName || name == impl.inputName2)
+                continue; // Skip audio inputs
+            
+            // This is a state input. Get its shape and type.
+            auto stateTypeInfo = impl.session->GetInputTypeInfo (i);
+            auto tensorInfo = stateTypeInfo.GetTensorTypeAndShapeInfo ();
+            auto sh = tensorInfo.GetShape ();
+            
+            // Allocate data buffer
+            size_t numElements = 1;
+            for (auto& dim : sh)
+            {
+                if (dim <= 0)
+                    dim = 1; // replace dynamic dimensions with 1 for state tensors
+                numElements *= (size_t)dim;
+            }
+            
+            Impl::StateTensor st;
+            st.name = name;
+            st.shape = sh;
+            st.data.assign (numElements, 0.f); // initialize to zero
+            impl.stateInputs.push_back (st);
+        }
+
+        for (size_t i = 0; i < numOutputs; ++i)
+        {
+            auto nameAlloc = impl.session->GetOutputNameAllocated (i, alloc);
+            std::string name = nameAlloc.get ();
+            if (name == impl.outputName || name == impl.outputName2)
+                continue; // Skip audio outputs
+            
+            impl.stateOutputNames.push_back (name);
+        }
+
+        const size_t numRunInputs = (impl.isStereoModel ? 2 : 1) + impl.stateInputs.size ();
+        const size_t numRunOutputs = (impl.isStereoModel ? 2 : 1) + impl.stateOutputNames.size ();
+
+        impl.runInNames.resize (numRunInputs, nullptr);
+        impl.runOutNames.resize (numRunOutputs, nullptr);
+        impl.runInTensors.clear ();
+        for (size_t i = 0; i < numRunInputs; ++i)
+        {
+            impl.runInTensors.push_back (Ort::Value (nullptr));
+        }
+
         impl.status = Status::Ready;
         return true;
     }
@@ -257,6 +327,14 @@ void OnnxSession::unloadModel ()
     pImpl->fSize = 0;
     pImpl->status = Status::Idle;
     pImpl->lastError = {};
+
+    pImpl->stateInputs.clear ();
+    pImpl->stateOutputNames.clear ();
+    pImpl->runInNames.clear ();
+    pImpl->runOutNames.clear ();
+#if AUCLEAR_HAS_ONNXRUNTIME
+    pImpl->runInTensors.clear ();
+#endif
 }
 
 bool OnnxSession::isLoaded () const
@@ -304,20 +382,53 @@ bool OnnxSession::runFrame (const float* in, float* out)
 
     std::memcpy (impl.inBuf.data (), in, (size_t)impl.fSize * sizeof (float));
 
-    const char* inName = impl.inputName.c_str ();
-    const char* outName = impl.outputName.c_str ();
+    // Prepare inputs
+    impl.runInNames[0] = impl.inputName.c_str ();
+    impl.runInTensors[0] = Ort::Value::CreateTensor<float> (
+        impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
+        impl.shape.data (), impl.shape.size ());
 
-    Ort::Value inTensor =
-        Ort::Value::CreateTensor<float> (impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
-                                         impl.shape.data (), impl.shape.size ());
+    for (size_t i = 0; i < impl.stateInputs.size (); ++i)
+    {
+        auto& st = impl.stateInputs[i];
+        impl.runInNames[1 + i] = st.name.c_str ();
+        impl.runInTensors[1 + i] = Ort::Value::CreateTensor<float> (
+            impl.memInfo, st.data.data (), st.data.size (),
+            st.shape.data (), st.shape.size ());
+    }
+
+    // Prepare outputs
+    impl.runOutNames[0] = impl.outputName.c_str ();
+    for (size_t i = 0; i < impl.stateOutputNames.size (); ++i)
+    {
+        impl.runOutNames[1 + i] = impl.stateOutputNames[i].c_str ();
+    }
+
+    const size_t numRunInputs = 1 + impl.stateInputs.size ();
+    const size_t numRunOutputs = 1 + impl.stateOutputNames.size ();
 
     try
     {
-        auto outputs =
-            impl.session->Run (Ort::RunOptions{nullptr}, &inName, &inTensor, 1, &outName, 1);
+        auto outputs = impl.session->Run (
+            Ort::RunOptions{nullptr},
+            impl.runInNames.data (), impl.runInTensors.data (), numRunInputs,
+            impl.runOutNames.data (), numRunOutputs);
+
+        if (outputs.empty ())
+            return false;
 
         const float* ptr = outputs[0].GetTensorData<float> ();
         std::memcpy (out, ptr, (size_t)impl.fSize * sizeof (float));
+
+        // Feedback state outputs to state inputs
+        const size_t numStatesToCopy = std::min (impl.stateInputs.size (), outputs.size () - 1);
+        for (size_t i = 0; i < numStatesToCopy; ++i)
+        {
+            auto& st = impl.stateInputs[i];
+            const float* statePtr = outputs[1 + i].GetTensorData<float> ();
+            std::memcpy (st.data.data (), statePtr, st.data.size () * sizeof (float));
+        }
+
         return true;
     }
     catch (...)
@@ -343,25 +454,61 @@ bool OnnxSession::runFrame (const float* inL, const float* inR, float* outL, flo
     std::memcpy (impl.inBuf.data (), inL, (size_t)impl.fSize * sizeof (float));
     std::memcpy (impl.inBuf2.data (), inR, (size_t)impl.fSize * sizeof (float));
 
-    const char* inNames[2] = { impl.inputName.c_str (), impl.inputName2.c_str () };
-    const char* outNames[2] = { impl.outputName.c_str (), impl.outputName2.c_str () };
+    // Prepare inputs
+    impl.runInNames[0] = impl.inputName.c_str ();
+    impl.runInTensors[0] = Ort::Value::CreateTensor<float> (
+        impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
+        impl.shape.data (), impl.shape.size ());
 
-    Ort::Value inTensors[2] = {
-        Ort::Value::CreateTensor<float> (impl.memInfo, impl.inBuf.data (), (size_t)impl.fSize,
-                                         impl.shape.data (), impl.shape.size ()),
-        Ort::Value::CreateTensor<float> (impl.memInfo, impl.inBuf2.data (), (size_t)impl.fSize,
-                                         impl.shape.data (), impl.shape.size ())
-    };
+    impl.runInNames[1] = impl.inputName2.c_str ();
+    impl.runInTensors[1] = Ort::Value::CreateTensor<float> (
+        impl.memInfo, impl.inBuf2.data (), (size_t)impl.fSize,
+        impl.shape.data (), impl.shape.size ());
+
+    for (size_t i = 0; i < impl.stateInputs.size (); ++i)
+    {
+        auto& st = impl.stateInputs[i];
+        impl.runInNames[2 + i] = st.name.c_str ();
+        impl.runInTensors[2 + i] = Ort::Value::CreateTensor<float> (
+            impl.memInfo, st.data.data (), st.data.size (),
+            st.shape.data (), st.shape.size ());
+    }
+
+    // Prepare outputs
+    impl.runOutNames[0] = impl.outputName.c_str ();
+    impl.runOutNames[1] = impl.outputName2.c_str ();
+    for (size_t i = 0; i < impl.stateOutputNames.size (); ++i)
+    {
+        impl.runOutNames[2 + i] = impl.stateOutputNames[i].c_str ();
+    }
+
+    const size_t numRunInputs = 2 + impl.stateInputs.size ();
+    const size_t numRunOutputs = 2 + impl.stateOutputNames.size ();
 
     try
     {
-        auto outputs =
-            impl.session->Run (Ort::RunOptions{nullptr}, inNames, inTensors, 2, outNames, 2);
+        auto outputs = impl.session->Run (
+            Ort::RunOptions{nullptr},
+            impl.runInNames.data (), impl.runInTensors.data (), numRunInputs,
+            impl.runOutNames.data (), numRunOutputs);
+
+        if (outputs.size () < 2)
+            return false;
 
         const float* ptrL = outputs[0].GetTensorData<float> ();
         const float* ptrR = outputs[1].GetTensorData<float> ();
         std::memcpy (outL, ptrL, (size_t)impl.fSize * sizeof (float));
         std::memcpy (outR, ptrR, (size_t)impl.fSize * sizeof (float));
+
+        // Feedback state outputs to state inputs
+        const size_t numStatesToCopy = std::min (impl.stateInputs.size (), outputs.size () - 2);
+        for (size_t i = 0; i < numStatesToCopy; ++i)
+        {
+            auto& st = impl.stateInputs[i];
+            const float* statePtr = outputs[2 + i].GetTensorData<float> ();
+            std::memcpy (st.data.data (), statePtr, st.data.size () * sizeof (float));
+        }
+
         return true;
     }
     catch (...)
