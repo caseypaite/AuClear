@@ -412,6 +412,19 @@ class StemRemixPanel : public juce::Component,
                     if (destFile.existsAsFile ())
                         destFile.deleteFile ();
                     f.copyFileTo (destFile);
+
+                    // Copy configuration if it exists next to the loaded ONNX file
+                    auto srcConfig = f.getParentDirectory ().getChildFile (f.getFileNameWithoutExtension () + ".config.ini");
+                    if (! srcConfig.existsAsFile ())
+                        srcConfig = f.getParentDirectory ().getChildFile ("config.ini");
+
+                    if (srcConfig.existsAsFile ())
+                    {
+                        auto destConfig = getSharedModelsDir ().getChildFile (f.getFileNameWithoutExtension () + ".config.ini");
+                        if (destConfig.existsAsFile ())
+                            destConfig.deleteFile ();
+                        srcConfig.copyFileTo (destConfig);
+                    }
                 }
 
                 loadModelFile (destFile);

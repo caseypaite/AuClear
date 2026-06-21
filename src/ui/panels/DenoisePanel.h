@@ -59,6 +59,19 @@ class DenoisePanel : public juce::Component, public juce::Timer
                                           if (destFile.existsAsFile ())
                                               destFile.deleteFile ();
                                           chosenFile.copyFileTo (destFile);
+
+                                          // Copy configuration if it exists next to the loaded ONNX file
+                                          auto srcConfig = chosenFile.getParentDirectory ().getChildFile (chosenFile.getFileNameWithoutExtension () + ".config.ini");
+                                          if (! srcConfig.existsAsFile ())
+                                              srcConfig = chosenFile.getParentDirectory ().getChildFile ("config.ini");
+
+                                          if (srcConfig.existsAsFile ())
+                                          {
+                                              auto destConfig = getSharedModelsDir ().getChildFile (chosenFile.getFileNameWithoutExtension () + ".config.ini");
+                                              if (destConfig.existsAsFile ())
+                                                  destConfig.deleteFile ();
+                                              srcConfig.copyFileTo (destConfig);
+                                          }
                                       }
                                       
                                       mod.setModelFile (destFile);

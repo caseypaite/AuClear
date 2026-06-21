@@ -23,7 +23,7 @@ struct AIEngine::ChannelState
     int dryWrite = 0;
     int dryRead = 0;
 
-    void reset (double hostSR, int maxHostBlock, int modelFrameSize, int totalLatencyHostSamples)
+    void reset (double hostSR, double modelSR, int maxHostBlock, int modelFrameSize, int totalLatencyHostSamples)
     {
         reBlocker.reset (modelFrameSize);
 
@@ -32,7 +32,7 @@ struct AIEngine::ChannelState
 
         // Worst-case model-SR samples per host block (with headroom).
         const int maxModelSamples =
-            (int)std::ceil ((double)maxHostBlock * AIEngine::kModelSR / hostSR) + 16;
+            (int)std::ceil ((double)maxHostBlock * modelSR / hostSR) + 16;
         modelIn.assign ((size_t)maxModelSamples, 0.f);
         modelOut.assign ((size_t)maxModelSamples, 0.f);
         wetHost.assign ((size_t)maxHostBlock, 0.f); // exact host-block size
@@ -51,13 +51,81 @@ struct AIEngine::ChannelState
 AIEngine::AIEngine () : session (std::make_unique<OnnxSession> ()) {}
 AIEngine::~AIEngine () = default;
 
+static void parseConfigIni (const juce::File& configFile, double& outSR, int& outFrameSize)
+{
+    juce::StringArray lines;
+    configFile.readLines (lines);
+    for (const auto& line : lines)
+    {
+        auto trimmed = line.trim ();
+        if (trimmed.startsWithChar (';') || trimmed.startsWithChar ('#'))
+            continue; // Skip comment
+        
+        if (trimmed.contains ("="))
+        {
+            auto key = trimmed.upToFirstOccurrenceOf ("=", false, false).trim ().toLowerCase ();
+            auto val = trimmed.fromFirstOccurrenceOf ("=", false, false).trim ();
+            
+            if (key == "sr")
+            {
+                double parsedSR = val.getDoubleValue ();
+                if (parsedSR > 0.0)
+                    outSR = parsedSR;
+            }
+            else if (key == "hop_size" || key == "frame_size" || key == "fft_size")
+            {
+                int parsedFrame = val.getIntValue ();
+                if (parsedFrame > 0)
+                    outFrameSize = parsedFrame;
+            }
+        }
+    }
+}
+
 bool AIEngine::loadModel (const juce::File& file)
 {
     if (! file.existsAsFile ())
         return false;
+
+    // Reset default parameters
+    modelSR = 48000.0;
+    modelFrame = 480;
+
+    // Try parsing config.ini
+    bool hasCustomHopSize = false;
+    double parsedSR = 48000.0;
+    int parsedFrame = 480;
+
+    auto config = file.getParentDirectory ().getChildFile (file.getFileNameWithoutExtension () + ".config.ini");
+    if (! config.existsAsFile ())
+        config = file.getParentDirectory ().getChildFile ("config.ini");
+
+    if (config.existsAsFile ())
+    {
+        double oldSR = parsedSR;
+        int oldFrame = parsedFrame;
+        parseConfigIni (config, parsedSR, parsedFrame);
+        if (parsedSR != oldSR)
+            modelSR = parsedSR;
+        if (parsedFrame != oldFrame)
+        {
+            modelFrame = parsedFrame;
+            hasCustomHopSize = true;
+        }
+    }
+
     const bool ok = session->loadModel (file.getFullPathName ().toStdString ());
     if (ok)
     {
+        // ONNX shape frame size is the ultimate source of truth if config.ini didn't override it
+        int discoveredFrame = session->frameSize ();
+        if (discoveredFrame > 0 && ! hasCustomHopSize)
+            modelFrame = discoveredFrame;
+
+        // Re-prepare dynamically to update channel states/resamplers with new model parameters
+        if (prepared)
+            prepare (hostSR, maxBlock);
+
         session->preWarm ();   // JIT compile on message thread before audio thread sees the model
         session->makeReady (); // release-store: audio thread may now call runFrame()
     }
@@ -100,7 +168,7 @@ void AIEngine::prepare (double sampleRate, int maxBlockSize)
     maxBlock = maxBlockSize;
 
     // Latency = one model frame converted to host samples + 1 resampler pad
-    const int frameHost = (int)std::ceil ((double)kModelFrame * sampleRate / kModelSR);
+    const int frameHost = (int)std::ceil ((double)modelFrame * sampleRate / modelSR);
     cachedLatency = frameHost;
 
     constexpr int numCh = 2; // always prepare stereo
@@ -108,7 +176,7 @@ void AIEngine::prepare (double sampleRate, int maxBlockSize)
     for (int ch = 0; ch < numCh; ++ch)
     {
         channels[(size_t)ch] = std::make_unique<ChannelState> ();
-        channels[(size_t)ch]->reset (sampleRate, maxBlockSize, kModelFrame, cachedLatency);
+        channels[(size_t)ch]->reset (sampleRate, modelSR, maxBlockSize, modelFrame, cachedLatency);
     }
     prepared = true;
 }
@@ -117,7 +185,7 @@ void AIEngine::reset ()
 {
     for (auto& ch : channels)
         if (ch)
-            ch->reset (hostSR, maxBlock, kModelFrame, cachedLatency);
+            ch->reset (hostSR, modelSR, maxBlock, modelFrame, cachedLatency);
 }
 
 // ---------------------------------------------------------------------------
@@ -164,10 +232,10 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
     // switched to the inference path mid-stream when the model became available.
 
     // 2. Resample host→model SR if needed
-    const double downRatio = hostSR / kModelSR;
+    const double downRatio = hostSR / modelSR;
     int nModel;
 
-    if (std::abs (hostSR - kModelSR) < 0.5)
+    if (std::abs (hostSR - modelSR) < 0.5)
     {
         // No resampling needed — copy directly
         nModel = n;
@@ -196,7 +264,7 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
                        [this] (const float* in, float* out)
                        {
                            if (!session->runFrame (in, out))
-                               std::memcpy (out, in, (size_t)kModelFrame * sizeof (float));
+                               std::memcpy (out, in, (size_t)modelFrame * sizeof (float));
                        });
 
     cs.reBlocker.pop (cs.modelOut.data (), nModel);
@@ -208,13 +276,13 @@ void AIEngine::processChannel (int ch, juce::AudioBuffer<float>& buf, float stre
         std::fill (cs.modelOut.begin () + padStart, cs.modelOut.begin () + padStart + padSize, 0.f);
 
     // 4. Resample model→host SR (into pre-allocated cs.wetHost — no heap alloc)
-    if (std::abs (hostSR - kModelSR) < 0.5)
+    if (std::abs (hostSR - modelSR) < 0.5)
     {
         std::memcpy (cs.wetHost.data (), cs.modelOut.data (), (size_t)n * sizeof (float));
     }
     else
     {
-        const double upRatio = kModelSR / hostSR; // < 1 when upsampling to lower SR
+        const double upRatio = modelSR / hostSR; // < 1 when upsampling to lower SR
         cs.upSampler.process (upRatio, cs.modelOut.data (), cs.wetHost.data (), n);
     }
 

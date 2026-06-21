@@ -54,8 +54,8 @@ class AIEngine
     float cpuLoad () const { return cpuLoadFraction.load (std::memory_order_relaxed); }
 
   private:
-    static constexpr double kModelSR = 48000.0;
-    static constexpr int kModelFrame = 480; // 10 ms at 48 kHz
+    double modelSR = 48000.0;
+    int modelFrame = 480;
 
     void processChannel (int ch, juce::AudioBuffer<float>& buf, float strength, bool listen);
 
@@ -67,7 +67,7 @@ class AIEngine
 
     double hostSR = 48000.0;
     int maxBlock = 512;
-    int cachedLatency = kModelFrame; // updated in prepare()
+    int cachedLatency = 480; // updated in prepare()
     bool prepared = false;
 
     std::atomic<float> cpuLoadFraction{0.f};
