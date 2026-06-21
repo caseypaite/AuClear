@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "engine/ProcessorRack.h"
+#include "engine/PresetManager.h"
 #include "engine/RealtimeStemProcessor.h"
 
 class AuClearAudioProcessor : public juce::AudioProcessor
@@ -36,6 +37,12 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     ProcessorRack& getRack ()    { return rack; }
     float getCpuLoad () const    { return loadMeasurer.getLoadAsProportion (); }
 
+    // ─── Preset API (message thread) ─────────────────────────────────────────
+    bool loadPreset   (const juce::String& name) { return presetManager.load (name);   }
+    bool savePreset   (const juce::String& name) { return presetManager.save (name);   }
+    bool deletePreset (const juce::String& name) { return presetManager.remove (name); }
+    PresetManager::PresetLists getPresetLists () const { return presetManager.getLists (); }
+
     // ─── Media player (standalone mode) ──────────────────────────────────────
     bool loadMediaFile (const juce::File& file);
     void unloadMediaFile ();
@@ -46,14 +53,14 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     juce::AudioTransportSource& getTransportSource () { return transportSource; }
     juce::AudioFormatManager&   getFormatManager ()   { return formatManager; }
 
-    // ─── Real-time stem processor (standalone + plugin mode, Phase 4b) ────────
-    // loadStemModel / unloadStemModel are message-thread.
+    // ─── Real-time stem processor ─────────────────────────────────────────────
     bool                   loadStemModel (const juce::File& onnxPath);
     void                   unloadStemModel ();
     RealtimeStemProcessor& getRealtimeStemProcessor () { return realtimeStemProc; }
 
   private:
-    ProcessorRack rack;
+    ProcessorRack  rack;
+    PresetManager  presetManager{rack};
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessLoadMeasurer loadMeasurer;
 

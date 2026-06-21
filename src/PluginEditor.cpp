@@ -14,6 +14,18 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
 
     rackColumn.onModuleSelected = [this] (RackModule* m) { mainStage.showModule (m); };
 
+    header.onPresetChosen = [this] (const juce::String& choice)
+    {
+        handlePresetChosen (choice);
+    };
+
+    // Populate preset browser with factory + user preset names
+    {
+        const auto lists = p.getPresetLists ();
+        header.setPresetList (lists.factory, lists.user);
+        header.setCurrentPreset ("Init");
+    }
+
     if (juce::JUCEApplicationBase::isStandaloneApp ())
     {
         mediaPlayerPanel = std::make_unique<MediaPlayerPanel> (p);
@@ -43,7 +55,33 @@ AuClearAudioProcessorEditor::~AuClearAudioProcessorEditor ()
 
 void AuClearAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff16181d));
+    g.fillAll (juce::Colour (AP::kBgBase));
+}
+
+void AuClearAudioProcessorEditor::handlePresetChosen (const juce::String& choice)
+{
+    if (choice.startsWith ("__save__:"))
+    {
+        const juce::String name = choice.fromFirstOccurrenceOf ("__save__:", false, false);
+        processorRef.savePreset (name);
+        header.setCurrentPreset (name);
+        const auto info = processorRef.getPresetLists ();
+        header.setPresetList (info.factory, info.user);
+    }
+    else if (choice.startsWith ("__delete__:"))
+    {
+        const juce::String name = choice.fromFirstOccurrenceOf ("__delete__:", false, false);
+        processorRef.deletePreset (name);
+        header.setCurrentPreset ("Init");
+        const auto info = processorRef.getPresetLists ();
+        header.setPresetList (info.factory, info.user);
+    }
+    else
+    {
+        processorRef.loadPreset (choice);
+        header.setCurrentPreset (choice);
+        rackColumn.syncWithRack ();
+    }
 }
 
 void AuClearAudioProcessorEditor::resized ()

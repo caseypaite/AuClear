@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "../engine/ProcessorRack.h"
+#include "AnalogPalette.h"
 
 /**
  * Bottom meter strip: stereo L/R peak meters for input and output with peak hold,
@@ -37,13 +38,13 @@ class MeterBridge : public juce::Component, private juce::Timer
     static constexpr int kHz = 30;
     static constexpr int kHoldFrames = 90; // 3 s @ 30 Hz
 
-    static constexpr juce::uint32 kBg = 0xff16181d;
-    static constexpr juce::uint32 kPanel = 0xff1e2128;
-    static constexpr juce::uint32 kGreen = 0xff2eb872;
-    static constexpr juce::uint32 kAmber = 0xffd4a020;
-    static constexpr juce::uint32 kRed = 0xffe0402a;
-    static constexpr juce::uint32 kHold = 0xffe8eaed;
-    static constexpr juce::uint32 kAccent = 0xff28e0c8;
-    static constexpr juce::uint32 kTextLo = 0xff9aa0ab;
-    static constexpr juce::uint32 kDivider = 0xff2a2e37;
+    static constexpr juce::uint32 kBg      = AP::kBgBase;
+    static constexpr juce::uint32 kPanel   = AP::kBgPanel;
+    static constexpr juce::uint32 kGreen   = AP::kGreen;
+    static constexpr juce::uint32 kAmber   = AP::kAmber;
+    static constexpr juce::uint32 kRed     = AP::kRed;
+    static constexpr juce::uint32 kHold    = AP::kTxtHi;
+    static constexpr juce::uint32 kAccent  = AP::kAccentBr;
+    static constexpr juce::uint32 kTextLo  = AP::kTxtLo;
+    static constexpr juce::uint32 kDivider = AP::kDiv;
 };

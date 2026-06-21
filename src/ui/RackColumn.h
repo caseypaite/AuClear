@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <vector>
+#include "AnalogPalette.h"
 #include <memory>
 #include <functional>
 #include "RackModuleCard.h"
@@ -54,7 +55,7 @@ class RackColumn : public juce::Component, public RackModuleCard::Listener
     RackModuleCard* dragCard{nullptr};
     int dragStartIndex{-1};
 
-    static constexpr juce::uint32 kBg = 0xff16181d;
-    static constexpr juce::uint32 kAccent = 0xff28e0c8;
-    static constexpr juce::uint32 kDiv = 0xff2a2e37;
+    static constexpr juce::uint32 kBg     = AP::kBgBase;
+    static constexpr juce::uint32 kAccent = AP::kAccentBr;
+    static constexpr juce::uint32 kDiv    = AP::kDiv;
 };

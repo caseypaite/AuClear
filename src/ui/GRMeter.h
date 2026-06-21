@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "AnalogPalette.h"
 
 /**
  * Vertical gain-reduction bar meter. Reads from an atomic<float> on a timer.
@@ -21,27 +22,27 @@ class GRMeter : public juce::Component, private juce::Timer
         const auto b = getLocalBounds ().toFloat ();
 
         // Background
-        g.setColour (juce::Colour (0xff0d0f12));
+        g.setColour (juce::Colour (AP::kBgDeep));
         g.fillRoundedRectangle (b, 3.f);
 
         const float gr = juce::jlimit (0.f, maxGR, -displayGR);
         const float fraction = gr / maxGR;
         const float fillH = b.getHeight () * fraction;
 
-        // GR fill (teal → amber → red by amount)
+        // GR fill: green → amber → red (VU style)
         juce::Colour fillCol;
         if (gr < 6.f)
-            fillCol = juce::Colour (0xff28e0c8);
+            fillCol = juce::Colour (AP::kGreen);
         else if (gr < 15.f)
-            fillCol = juce::Colour (0xffddaa00);
+            fillCol = juce::Colour (AP::kAmber);
         else
-            fillCol = juce::Colour (0xffdd3333);
+            fillCol = juce::Colour (AP::kRed);
 
         g.setColour (fillCol);
         g.fillRoundedRectangle (b.withTop (b.getY () + b.getHeight () - fillH), 3.f);
 
         // Scale lines every 6 dB
-        g.setColour (juce::Colour (0xff2a2e37));
+        g.setColour (juce::Colour (AP::kDiv));
         for (float db = 6.f; db < maxGR; db += 6.f)
         {
             const float y = b.getY () + b.getHeight () * (1.f - db / maxGR);
@@ -49,7 +50,7 @@ class GRMeter : public juce::Component, private juce::Timer
         }
 
         // Label
-        g.setColour (juce::Colour (0xff9aa0ab));
+        g.setColour (juce::Colour (AP::kTxtLo));
         g.setFont (9.f);
         g.drawText (juce::String (static_cast<int> (-gr)) + " dB", b.reduced (2).withHeight (12),
                     juce::Justification::centredTop, false);

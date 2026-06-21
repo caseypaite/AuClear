@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <functional>
+#include "AnalogPalette.h"
 
 class HeaderComponent : public juce::Component
 {
@@ -10,34 +11,39 @@ class HeaderComponent : public juce::Component
     void paint (juce::Graphics& g) override;
     void resized () override;
 
-    std::function<void ()> onBypassToggled;
-    std::function<void ()> onUndoClicked;
+    std::function<void ()>               onBypassToggled;
+    std::function<void ()>               onUndoClicked;
+    std::function<void (juce::String)>   onPresetChosen;   // preset name
 
-    void setCpuLoad (float fraction)
-    {
-        cpuLoad = fraction;
-        repaint ();
-    }
-    void setLatencyMs (double ms)
-    {
-        latencyMs = ms;
-        repaint ();
-    }
+    void setCpuLoad (float fraction) { cpuLoad = fraction; repaint (); }
+    void setLatencyMs (double ms)    { latencyMs = ms;     repaint (); }
     void setBypassActive (bool active)
     {
         bypassButton.setToggleState (active, juce::dontSendNotification);
     }
 
+    void setCurrentPreset (const juce::String& name)
+    {
+        currentPreset = name;
+        presetButton.setButtonText (name);
+    }
+
+    void setPresetList (const juce::StringArray& factory,
+                        const juce::StringArray& user)
+    {
+        factoryPresets = factory;
+        userPresets    = user;
+    }
+
   private:
+    void showPresetPopup ();
+
     juce::TextButton bypassButton{"Bypass"};
     juce::TextButton undoButton{"Undo"};
+    juce::TextButton presetButton{"Init"};   // preset selector
 
-    float cpuLoad{0.0f};
+    float  cpuLoad{0.f};
     double latencyMs{0.0};
-
-    static constexpr juce::uint32 kBg = 0xff1e2128;
-    static constexpr juce::uint32 kAccent = 0xff28e0c8;
-    static constexpr juce::uint32 kTextHi = 0xffe8eaed;
-    static constexpr juce::uint32 kTextLo = 0xff9aa0ab;
-    static constexpr juce::uint32 kDivider = 0xff2a2e37;
+    juce::String      currentPreset{"Init"};
+    juce::StringArray factoryPresets, userPresets;
 };

@@ -4,6 +4,7 @@
 #include "GoniometerDisplay.h"
 #include "../dsp/SpectrumFifo.h"
 #include "../dsp/GoniometerFifo.h"
+#include "AnalogPalette.h"
 
 /**
  * Right-hand inspector panel: spectrum analyzer (top) + Lissajous goniometer
@@ -19,7 +20,7 @@ class InspectorPanel : public juce::Component
         addAndMakeVisible (goniometer);
         addAndMakeVisible (titleLabel);
         titleLabel.setText ("Inspector", juce::dontSendNotification);
-        titleLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9aa0ab));
+        titleLabel.setColour (juce::Label::textColourId, juce::Colour (AP::kTxtLo));
         titleLabel.setFont (juce::FontOptions (11.f));
         titleLabel.setJustificationType (juce::Justification::centred);
     }
@@ -28,11 +29,11 @@ class InspectorPanel : public juce::Component
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colour (0xff1e2128));
+        g.fillAll (juce::Colour (AP::kBgPanel));
 
         // Separator between spectrum and goniometer
         const int sepY = titleH + specH ();
-        g.setColour (juce::Colour (0xff2a2e37));
+        g.setColour (juce::Colour (AP::kDiv));
         g.fillRect (0, sepY, getWidth (), 1);
     }
 

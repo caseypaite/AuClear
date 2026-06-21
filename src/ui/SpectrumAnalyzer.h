@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "../dsp/SpectrumFifo.h"
+#include "AnalogPalette.h"
 #include <array>
 
 /**
@@ -32,11 +33,11 @@ class SpectrumAnalyzer : public juce::Component, private juce::Timer
         const auto b = getLocalBounds ().toFloat ();
         const float w = b.getWidth (), h = b.getHeight ();
 
-        g.setColour (juce::Colour (0xff0d0f12));
+        g.setColour (juce::Colour (AP::kBgDeep));
         g.fillRoundedRectangle (b, 4.f);
 
         // Grid
-        g.setColour (juce::Colour (0xff1e2128));
+        g.setColour (juce::Colour (AP::kBgCard));
         for (float hz : {100.f, 200.f, 500.f, 1000.f, 2000.f, 5000.f, 10000.f})
         {
             const float x = b.getX () + hzToX (hz, w);
@@ -78,7 +79,7 @@ class SpectrumAnalyzer : public juce::Component, private juce::Timer
         p.lineTo (b.getRight (), b.getBottom ());
         p.closeSubPath ();
 
-        g.setColour (juce::Colour (0xff28e0c8).withAlpha (0.25f));
+        g.setColour (juce::Colour (AP::kAccentBr).withAlpha (0.20f));
         g.fillPath (p);
 
         // Outline
@@ -100,11 +101,11 @@ class SpectrumAnalyzer : public juce::Component, private juce::Timer
             else
                 outline.lineTo (x, y);
         }
-        g.setColour (juce::Colour (0xff28e0c8));
+        g.setColour (juce::Colour (AP::kAccentBr));
         g.strokePath (outline, juce::PathStrokeType (1.f));
 
         // Peak hold dots
-        g.setColour (juce::Colour (0xffe8eaed).withAlpha (0.6f));
+        g.setColour (juce::Colour (AP::kTxtHi).withAlpha (0.6f));
         for (int i = 1; i < nBins; ++i)
         {
             const float binHz = static_cast<float> (i) * static_cast<float> (sr) /
@@ -120,7 +121,7 @@ class SpectrumAnalyzer : public juce::Component, private juce::Timer
         }
 
         // Frequency axis labels
-        g.setColour (juce::Colour (0xff9aa0ab));
+        g.setColour (juce::Colour (AP::kTxtLo));
         g.setFont (9.f);
         for (auto [hz, label] : std::array<std::pair<float, const char*>, 5>{{{100.f, "100"},
                                                                               {500.f, "500"},

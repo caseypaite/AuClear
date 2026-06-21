@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "../engine/RackModule.h"
+#include "AnalogPalette.h"
 
 /**
  * A collapsed card in the rack column representing one module.
@@ -68,12 +69,12 @@ class RackModuleCard : public juce::Component
     juce::Point<int> mouseDownPos;
     static constexpr int kDragThreshold = 5;
 
-    static constexpr juce::uint32 kBg = 0xff1e2128;
-    static constexpr juce::uint32 kBgHover = 0xff252931;
-    static constexpr juce::uint32 kBgSelect = 0xff1e2d3a;
-    static constexpr juce::uint32 kAccent = 0xff28e0c8;
-    static constexpr juce::uint32 kTextHi = 0xffe8eaed;
-    static constexpr juce::uint32 kTextLo = 0xff9aa0ab;
-    static constexpr juce::uint32 kDivider = 0xff2a2e37;
-    static constexpr juce::uint32 kInsert = 0xff28e0c8;
+    static constexpr juce::uint32 kBg       = AP::kBgCard;
+    static constexpr juce::uint32 kBgHover  = AP::kBgHover;
+    static constexpr juce::uint32 kBgSelect = AP::kBgSelect;
+    static constexpr juce::uint32 kAccent   = AP::kAccentBr;
+    static constexpr juce::uint32 kTextHi   = AP::kTxtHi;
+    static constexpr juce::uint32 kTextLo   = AP::kTxtLo;
+    static constexpr juce::uint32 kDivider  = AP::kDiv;
+    static constexpr juce::uint32 kInsert   = AP::kAccent;
 };

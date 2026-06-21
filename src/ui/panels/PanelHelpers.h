@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <atomic>
+#include "../AnalogPalette.h"
 
 /**
  * Reusable building blocks for module control panels.
@@ -18,10 +19,10 @@ struct KnobGroup
         slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         label.setFont (juce::FontOptions (11.f));
-        label.setColour (juce::Label::textColourId, juce::Colour (0xff9aa0ab));
+        label.setColour (juce::Label::textColourId, juce::Colour (AP::kTxtLo));
         label.setJustificationType (juce::Justification::centred);
         value.setFont (juce::FontOptions (11.f));
-        value.setColour (juce::Label::textColourId, juce::Colour (0xff28e0c8));
+        value.setColour (juce::Label::textColourId, juce::Colour (AP::kAccentBr));
         value.setJustificationType (juce::Justification::centred);
     }
 
@@ -63,27 +64,9 @@ inline void bindKnob (KnobGroup& kg, std::atomic<float>& param, double rangeMin,
     };
 }
 
-inline juce::Colour panelBg ()
-{
-    return juce::Colour (0xff16181d);
-}
-inline juce::Colour accent ()
-{
-    return juce::Colour (0xff28e0c8);
-}
-inline juce::Colour textHi ()
-{
-    return juce::Colour (0xffe8eaed);
-}
-inline juce::Colour textLo ()
-{
-    return juce::Colour (0xff9aa0ab);
-}
-inline juce::Colour panelCol ()
-{
-    return juce::Colour (0xff1e2128);
-}
-inline juce::Colour divider ()
-{
-    return juce::Colour (0xff2a2e37);
-}
+inline juce::Colour panelBg ()  { return juce::Colour (AP::kBgBase);   }
+inline juce::Colour accent ()   { return juce::Colour (AP::kAccentBr); }
+inline juce::Colour textHi ()   { return juce::Colour (AP::kTxtHi);    }
+inline juce::Colour textLo ()   { return juce::Colour (AP::kTxtLo);    }
+inline juce::Colour panelCol () { return juce::Colour (AP::kBgPanel);  }
+inline juce::Colour divider ()  { return juce::Colour (AP::kDiv);      }

@@ -186,6 +186,8 @@ target_sources(AuClear PRIVATE
     src/modules/DynamicEQModule.cpp
     src/modules/MultibandCompressorModule.cpp
     src/modules/SpectralRepairModule.cpp
+    # Phase 6 — Preset system
+    src/engine/PresetManager.cpp
     # Offline job manager + Demucs runner (Phase 4)
     src/offline/ArtifactCache.cpp
     src/offline/OfflineJobManager.cpp

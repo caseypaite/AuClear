@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "../dsp/GoniometerFifo.h"
+#include "AnalogPalette.h"
 #include <cmath>
 #include <vector>
 
@@ -34,7 +35,7 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
         const int corrH = 22;
         const auto corrArea = b.removeFromBottom (corrH);
 
-        g.setColour (juce::Colour (0xff0d0f12));
+        g.setColour (juce::Colour (AP::kBgDeep));
         g.fillRect (corrArea);
 
         // Coloured bar proportional to correlation
@@ -52,11 +53,11 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
 
         // Dark overlay to the right of the marker (dim the "not reached" part)
         const int markerX = corrArea.getX () + static_cast<int> (tNorm * bw);
-        g.setColour (juce::Colour (0xa016181d));
+        g.setColour (juce::Colour (AP::kBgDeep).withAlpha (160.f / 255.f));
         g.fillRect (juce::Rectangle<int> (markerX, corrArea.getY (), corrArea.getRight () - markerX, corrH));
 
         // Correlation value label
-        g.setColour (juce::Colour (0xffe8eaed));
+        g.setColour (juce::Colour (AP::kTxtHi));
         g.setFont (9.f);
         g.drawText (juce::String (displayCorr, 2), corrArea.reduced (2),
                     juce::Justification::centred, false);
@@ -66,7 +67,7 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
         g.fillRect (markerX - 1, corrArea.getY () + 1, 2, corrH - 2);
 
         // ── Lissajous area ───────────────────────────────────────────────────
-        g.setColour (juce::Colour (0xff0d0f12));
+        g.setColour (juce::Colour (AP::kBgDeep));
         g.fillRect (b);
 
         if (trailImg.isValid ())
@@ -75,7 +76,7 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
         // Crosshair guides (dimly)
         const float cx = b.getCentreX (), cy = b.getCentreY ();
         const float r  = juce::jmin (b.getWidth (), b.getHeight ()) * 0.5f;
-        g.setColour (juce::Colour (0xff2a2e37));
+        g.setColour (juce::Colour (AP::kDiv));
         g.drawLine (cx, static_cast<float> (b.getY ()),
                     cx, static_cast<float> (b.getBottom ()), 1.f);
         g.drawLine (static_cast<float> (b.getX ()), cy,
@@ -88,7 +89,7 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
 
         // Axis labels
         g.setFont (8.f);
-        g.setColour (juce::Colour (0xff4a5568));
+        g.setColour (juce::Colour (AP::kTxtLo));
         g.drawText ("L",  b.getX (),                b.getCentreY () - 5, 12, 10, juce::Justification::centred);
         g.drawText ("R",  b.getRight () - 12,        b.getCentreY () - 5, 12, 10, juce::Justification::centred);
         g.drawText ("M",  b.getCentreX () - 6,       b.getY (),           12, 10, juce::Justification::centred);
@@ -101,7 +102,7 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
         trailImg = juce::Image (juce::Image::RGB,
                                 juce::jmax (1, b.getWidth ()),
                                 juce::jmax (1, b.getHeight ()), true);
-        trailImg.clear (trailImg.getBounds (), juce::Colour (0xff0d0f12));
+        trailImg.clear (trailImg.getBounds (), juce::Colour (AP::kBgDeep));
     }
 
   private:
@@ -116,7 +117,7 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
         // Fade existing trail by drawing a semi-transparent background overlay
         {
             juce::Graphics gImg (trailImg);
-            gImg.setColour (juce::Colour (0xff0d0f12).withAlpha (0.25f));
+            gImg.setColour (juce::Colour (AP::kBgDeep).withAlpha (0.25f));
             gImg.fillAll ();
         }
 
@@ -143,7 +144,7 @@ class GoniometerDisplay : public juce::Component, private juce::Timer
             const float scale  = juce::jmin (cx, cy) * 0.88f;
 
             juce::Graphics gImg (trailImg);
-            gImg.setColour (juce::Colour (0xff28e0c8)); // teal
+            gImg.setColour (juce::Colour (AP::kAccentBr));
 
             // Subsample to keep at most ~400 dots per frame
             const int step = juce::jmax (1, n / 400);
