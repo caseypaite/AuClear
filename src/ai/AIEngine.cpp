@@ -123,7 +123,7 @@ bool AIEngine::loadModel (const juce::File& file)
     bool allOk = true;
     for (auto& s : sessions)
     {
-        if (! s->loadModel (file.getFullPathName ().toStdString ()))
+        if (! s->loadModel (file.getFullPathName ().toStdString (), modelFrame))
             allOk = false;
     }
 

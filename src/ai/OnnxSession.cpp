@@ -49,16 +49,14 @@ struct OnnxSession::Impl
 OnnxSession::OnnxSession () : pImpl (std::make_unique<Impl> ()) {}
 OnnxSession::~OnnxSession () = default;
 
-bool OnnxSession::loadModel (const std::string& modelPath, const std::string& inputName,
-                             const std::string& outputName)
+bool OnnxSession::loadModel (const std::string& modelPath, int targetFrameSize)
 {
     unloadModel ();
     auto& impl = *pImpl;
 
 #if !AUCLEAR_HAS_ONNXRUNTIME
     (void)modelPath;
-    (void)inputName;
-    (void)outputName;
+    (void)targetFrameSize;
     impl.lastError = "Built without ONNX Runtime support.";
     impl.status = Status::Error;
     return false;
@@ -76,19 +74,60 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
 #else
         impl.session = std::make_unique<Ort::Session> (impl.env, modelPath.c_str (), opts);
 #endif
-        impl.inputName = inputName;
-        impl.outputName = outputName;
 
         // Discover frame size from model input shape [batch, frameSize]
         Ort::AllocatorWithDefaultOptions alloc;
         size_t numInputs = impl.session->GetInputCount ();
         size_t numOutputs = impl.session->GetOutputCount ();
 
-        if (! ((numInputs == 1 && numOutputs == 1) || (numInputs == 2 && numOutputs == 2)))
+        if (targetFrameSize <= 0)
+            targetFrameSize = 480;
+
+        // 2. Discover audio inputs and outputs (filtering out auxiliary states)
+        std::vector<std::string> audioInputs;
+        std::vector<std::string> audioOutputs;
+
+        for (size_t i = 0; i < numInputs; ++i)
         {
-            std::string msg = "Model must have exactly 1 input and 1 output (mono) or 2 inputs and 2 outputs (stereo). Found " 
-                              + std::to_string (numInputs) + " inputs, " 
-                              + std::to_string (numOutputs) + " outputs. ";
+            auto sh = impl.session->GetInputTypeInfo (i).GetTensorTypeAndShapeInfo ().GetShape ();
+            if (sh.size () >= 2 && (sh.back () == targetFrameSize || sh.back () <= 0))
+            {
+                auto nameAlloc = impl.session->GetInputNameAllocated (i, alloc);
+                audioInputs.push_back (nameAlloc.get ());
+            }
+        }
+
+        for (size_t i = 0; i < numOutputs; ++i)
+        {
+            auto sh = impl.session->GetOutputTypeInfo (i).GetTensorTypeAndShapeInfo ().GetShape ();
+            if (sh.size () >= 2 && (sh.back () == targetFrameSize || sh.back () <= 0))
+            {
+                auto nameAlloc = impl.session->GetOutputNameAllocated (i, alloc);
+                audioOutputs.push_back (nameAlloc.get ());
+            }
+        }
+
+        // 3. Match inputs/outputs to decide Mono or Stereo mode
+        if (audioInputs.size () >= 2 && audioOutputs.size () >= 2)
+        {
+            impl.isStereoModel = true;
+            impl.inputName = audioInputs[0];
+            impl.inputName2 = audioInputs[1];
+            impl.outputName = audioOutputs[0];
+            impl.outputName2 = audioOutputs[1];
+        }
+        else if (audioInputs.size () == 1 && audioOutputs.size () == 1)
+        {
+            impl.isStereoModel = false;
+            impl.inputName = audioInputs[0];
+            impl.outputName = audioOutputs[0];
+        }
+        else
+        {
+            std::string msg = "Could not map model to mono or stereo audio. "
+                              "Found " + std::to_string (numInputs) + " inputs (" + std::to_string (audioInputs.size ()) + " audio), "
+                              + std::to_string (numOutputs) + " outputs (" + std::to_string (audioOutputs.size ()) + " audio). "
+                              "Target frame size: " + std::to_string (targetFrameSize) + ". ";
             
             msg += "Inputs: [";
             for (size_t i = 0; i < numInputs; ++i)
@@ -118,52 +157,15 @@ bool OnnxSession::loadModel (const std::string& modelPath, const std::string& in
             return false;
         }
 
-        impl.isStereoModel = (numInputs == 2);
+        impl.fSize = targetFrameSize;
 
-        // Get actual input & output names dynamically
-        auto inputNameAllocated = impl.session->GetInputNameAllocated (0, alloc);
-        impl.inputName = inputNameAllocated.get ();
-        if (impl.isStereoModel)
-        {
-            auto inputNameAllocated2 = impl.session->GetInputNameAllocated (1, alloc);
-            impl.inputName2 = inputNameAllocated2.get ();
-        }
-
-        auto outputNameAllocated = impl.session->GetOutputNameAllocated (0, alloc);
-        impl.outputName = outputNameAllocated.get ();
-        if (impl.isStereoModel)
-        {
-            auto outputNameAllocated2 = impl.session->GetOutputNameAllocated (1, alloc);
-            impl.outputName2 = outputNameAllocated2.get ();
-        }
-
+        // Set up shape vector: force batch=1, and preserve the original input 0's shape dimensions
         auto typeInfo = impl.session->GetInputTypeInfo (0);
         auto shape = typeInfo.GetTensorTypeAndShapeInfo ().GetShape ();
-
-        if (shape.size () < 2)
-        {
-            impl.lastError = "Model input shape must have at least 2 dimensions.";
-            impl.status = Status::Error;
-            impl.session.reset ();
-            return false;
-        }
-
-        // The frame size is the last dimension of the input shape
-        int fSizeIdx = (int)shape.size () - 1;
-        int64_t discoveredFrame = shape[(size_t)fSizeIdx];
-        if (discoveredFrame <= 0)
-        {
-            impl.lastError = "Invalid frame size discovered: " + std::to_string (discoveredFrame);
-            impl.status = Status::Error;
-            impl.session.reset ();
-            return false;
-        }
-
-        impl.fSize = static_cast<int> (discoveredFrame);
-        
-        // Preserve the full shape but force batch=1
         impl.shape = shape;
         impl.shape[0] = 1;
+        if (impl.shape.back () <= 0)
+            impl.shape[impl.shape.size () - 1] = impl.fSize;
 
         impl.inBuf.assign ((size_t)impl.fSize, 0.f);
         impl.outBuf.assign ((size_t)impl.fSize, 0.f);
