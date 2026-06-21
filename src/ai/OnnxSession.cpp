@@ -90,7 +90,7 @@ bool OnnxSession::loadModel (const std::string& modelPath, int targetFrameSize)
         for (size_t i = 0; i < numInputs; ++i)
         {
             auto sh = impl.session->GetInputTypeInfo (i).GetTensorTypeAndShapeInfo ().GetShape ();
-            if (sh.size () >= 2 && (sh.back () == targetFrameSize || sh.back () <= 0))
+            if (sh.size () >= 1 && (sh.back () == targetFrameSize || sh.back () <= 0))
             {
                 auto nameAlloc = impl.session->GetInputNameAllocated (i, alloc);
                 audioInputs.push_back (nameAlloc.get ());
@@ -100,7 +100,7 @@ bool OnnxSession::loadModel (const std::string& modelPath, int targetFrameSize)
         for (size_t i = 0; i < numOutputs; ++i)
         {
             auto sh = impl.session->GetOutputTypeInfo (i).GetTensorTypeAndShapeInfo ().GetShape ();
-            if (sh.size () >= 2 && (sh.back () == targetFrameSize || sh.back () <= 0))
+            if (sh.size () >= 1 && (sh.back () == targetFrameSize || sh.back () <= 0))
             {
                 auto nameAlloc = impl.session->GetOutputNameAllocated (i, alloc);
                 audioOutputs.push_back (nameAlloc.get ());
@@ -116,11 +116,31 @@ bool OnnxSession::loadModel (const std::string& modelPath, int targetFrameSize)
             impl.outputName = audioOutputs[0];
             impl.outputName2 = audioOutputs[1];
         }
-        else if (audioInputs.size () == 1 && audioOutputs.size () == 1)
+        else if (!audioInputs.empty () || !audioOutputs.empty () || (numInputs >= 1 && numOutputs >= 1))
         {
             impl.isStereoModel = false;
-            impl.inputName = audioInputs[0];
-            impl.outputName = audioOutputs[0];
+            
+            // Pick input: use first audio input if available, else input 0
+            if (!audioInputs.empty ())
+            {
+                impl.inputName = audioInputs[0];
+            }
+            else if (numInputs >= 1)
+            {
+                auto nameAlloc = impl.session->GetInputNameAllocated (0, alloc);
+                impl.inputName = nameAlloc.get ();
+            }
+
+            // Pick output: use first audio output if available, else output 0
+            if (!audioOutputs.empty ())
+            {
+                impl.outputName = audioOutputs[0];
+            }
+            else if (numOutputs >= 1)
+            {
+                auto nameAlloc = impl.session->GetOutputNameAllocated (0, alloc);
+                impl.outputName = nameAlloc.get ();
+            }
         }
         else
         {
@@ -159,13 +179,37 @@ bool OnnxSession::loadModel (const std::string& modelPath, int targetFrameSize)
 
         impl.fSize = targetFrameSize;
 
-        // Set up shape vector: force batch=1, and preserve the original input 0's shape dimensions
-        auto typeInfo = impl.session->GetInputTypeInfo (0);
+        // Set up shape vector: force batch=1 if 2D or more, and preserve the original input's shape dimensions
+        size_t selectedInputIdx = 0;
+        for (size_t i = 0; i < numInputs; ++i)
+        {
+            auto nameAlloc = impl.session->GetInputNameAllocated (i, alloc);
+            if (std::string(nameAlloc.get()) == impl.inputName)
+            {
+                selectedInputIdx = i;
+                break;
+            }
+        }
+
+        auto typeInfo = impl.session->GetInputTypeInfo (selectedInputIdx);
         auto shape = typeInfo.GetTensorTypeAndShapeInfo ().GetShape ();
         impl.shape = shape;
-        impl.shape[0] = 1;
-        if (impl.shape.back () <= 0)
-            impl.shape[impl.shape.size () - 1] = impl.fSize;
+
+        if (impl.shape.empty ())
+        {
+            impl.shape = { 1, (int64_t)impl.fSize };
+        }
+        else if (impl.shape.size () >= 2)
+        {
+            impl.shape[0] = 1;
+            if (impl.shape.back () <= 0)
+                impl.shape[impl.shape.size () - 1] = impl.fSize;
+        }
+        else // 1D tensor
+        {
+            if (impl.shape[0] <= 0)
+                impl.shape[0] = impl.fSize;
+        }
 
         impl.inBuf.assign ((size_t)impl.fSize, 0.f);
         impl.outBuf.assign ((size_t)impl.fSize, 0.f);
@@ -252,6 +296,11 @@ bool OnnxSession::runFrame (const float* in, float* out)
     auto& impl = *pImpl;
     if (! impl.session)
         return false;
+
+    if (impl.isStereoModel)
+    {
+        return runFrame (in, in, out, out);
+    }
 
     std::memcpy (impl.inBuf.data (), in, (size_t)impl.fSize * sizeof (float));
 

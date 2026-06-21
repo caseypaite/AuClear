@@ -57,9 +57,7 @@ class AIEngine
     double modelSR = 48000.0;
     int modelFrame = 480;
 
-    void processChannel (int ch, juce::AudioBuffer<float>& buf, float strength, bool listen);
-
-    std::vector<std::unique_ptr<OnnxSession>> sessions;
+    std::unique_ptr<OnnxSession> session;
 
     // Per-channel state (heap-allocated to avoid large stack objects)
     struct ChannelState;
