@@ -1,27 +1,11 @@
 #pragma once
 #include <JuceHeader.h>
+#include "../PluginProcessor.h"
 #include "../offline/OfflineJobManager.h"
+#include "../engine/StemState.h"
 #include "panels/PanelHelpers.h"
 #include <array>
-#include <atomic>
 #include <memory>
-
-// ─── Per-stem mix state ───────────────────────────────────────────────────────
-// Atomic members are safe to read from the audio thread; everything else is
-// message-thread only.
-
-struct StemState
-{
-    std::atomic<float> gain{1.0f};   // 0–2 linear
-    std::atomic<float> pan{0.0f};    // -1 to +1
-    std::atomic<bool>  muted{false};
-    std::atomic<bool>  soloed{false};
-    juce::File         stemFile;     // message thread only
-
-    StemState () = default;
-    StemState (const StemState&) = delete;
-    StemState& operator= (const StemState&) = delete;
-};
 
 // ─── Single stem channel strip ────────────────────────────────────────────────
 
@@ -56,9 +40,9 @@ class StemChannelStrip : public juce::Component
         {
             s.setSliderStyle (juce::Slider::LinearHorizontal);
             s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-            s.setColour (juce::Slider::thumbColourId,         col);
-            s.setColour (juce::Slider::trackColourId,         juce::Colour (0xff2a2e37));
-            s.setColour (juce::Slider::backgroundColourId,    juce::Colour (0xff1a1d24));
+            s.setColour (juce::Slider::thumbColourId,      col);
+            s.setColour (juce::Slider::trackColourId,      juce::Colour (0xff2a2e37));
+            s.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff1a1d24));
             addAndMakeVisible (s);
         };
 
@@ -82,7 +66,7 @@ class StemChannelStrip : public juce::Component
             addAndMakeVisible (*lbl);
         }
         gainLbl.setText ("Gain", juce::dontSendNotification);
-        panLbl.setText ("Pan",   juce::dontSendNotification);
+        panLbl.setText  ("Pan",  juce::dontSendNotification);
     }
 
     void paint (juce::Graphics& g) override
@@ -97,7 +81,7 @@ class StemChannelStrip : public juce::Component
         g.setColour (juce::Colours::white.withAlpha (0.95f));
         g.drawText (name.toUpperCase (), hdr.reduced (5, 0), juce::Justification::centredLeft);
 
-        // Mini waveform / status area
+        // Stem loaded / waveform area
         const auto wave = getLocalBounds ().withTop (kHdrH).removeFromTop (kWaveH).reduced (2, 2);
         g.setColour (juce::Colour (0xff13151a));
         g.fillRect (wave);
@@ -105,12 +89,10 @@ class StemChannelStrip : public juce::Component
 
         if (st.stemFile.existsAsFile ())
         {
-            // Loaded: draw a simple filled bar placeholder until full thumbnail is wired
             const int barH = juce::jmax (2, wave.getHeight () / 2);
             g.setColour (col.withAlpha (0.45f));
             g.fillRect (wave.withSizeKeepingCentre (wave.getWidth (), barH));
             g.setColour (col.withAlpha (0.75f));
-            g.setFont (9.f);
             g.drawText (st.stemFile.getFileName (), wave.reduced (2, 0),
                         juce::Justification::centred, true);
         }
@@ -131,20 +113,17 @@ class StemChannelStrip : public juce::Component
         b.removeFromTop (kHdrH + kWaveH);
         b.reduce (5, 3);
 
-        // Solo / Mute
         auto smRow = b.removeFromTop (20);
         soloBtn.setBounds (smRow.removeFromLeft (24).withSizeKeepingCentre (22, 17));
         smRow.removeFromLeft (3);
         muteBtn.setBounds (smRow.removeFromLeft (24).withSizeKeepingCentre (22, 17));
         b.removeFromTop (4);
 
-        // Gain
         auto gr = b.removeFromTop (17);
         gainLbl.setBounds (gr.removeFromLeft (28));
         gainSlider.setBounds (gr);
         b.removeFromTop (3);
 
-        // Pan
         auto pr = b.removeFromTop (17);
         panLbl.setBounds (pr.removeFromLeft (28));
         panSlider.setBounds (pr);
@@ -170,11 +149,8 @@ class StemRemixPanel : public juce::Component,
                        private juce::Timer
 {
   public:
-    // Read-only access for audio-thread routing (Phase 4b)
-    const std::array<StemState, 4>& getStemStates () const noexcept { return stemStates; }
-    float dryMix () const noexcept { return dryMixVal.load (std::memory_order_relaxed); }
-
-    StemRemixPanel () : srcThumbnail (512, thumbnailFmt, thumbnailCache)
+    explicit StemRemixPanel (AuClearAudioProcessor& p)
+        : proc (p), srcThumbnail (512, thumbnailFmt, thumbnailCache)
     {
         thumbnailFmt.registerBasicFormats ();
         srcThumbnail.addChangeListener (this);
@@ -205,17 +181,18 @@ class StemRemixPanel : public juce::Component,
         modelLabel.setText ("No model loaded", juce::dontSendNotification);
         addAndMakeVisible (modelLabel);
 
-        // ── Channel strips ────────────────────────────────────────────────────
+        // ── Channel strips — bound to stemPlayer.stems[i] in the processor ───
         static constexpr struct { const char* name; juce::uint32 col; } kDefs[4] = {
             {"drums",  0xff4a9eff},
             {"bass",   0xffff7043},
             {"other",  0xffab47bc},
             {"vocals", 0xffec407a},
         };
+        auto& sp = proc.getStemPlayer ();
         for (int i = 0; i < 4; ++i)
         {
             strips[i] = std::make_unique<StemChannelStrip> (
-                kDefs[i].name, juce::Colour (kDefs[i].col), stemStates[i]);
+                kDefs[i].name, juce::Colour (kDefs[i].col), sp.stems[i]);
             addAndMakeVisible (*strips[i]);
         }
 
@@ -247,14 +224,15 @@ class StemRemixPanel : public juce::Component,
         progressBar.setVisible (false);
         addAndMakeVisible (progressBar);
 
+        // Dry-mix slider writes directly into stemPlayer's atomic.
         dryMixSlider.setSliderStyle (juce::Slider::LinearHorizontal);
         dryMixSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         dryMixSlider.setRange (0.0, 1.0, 0.01);
         dryMixSlider.setValue (0.0, juce::dontSendNotification);
-        dryMixSlider.setColour (juce::Slider::thumbColourId,  juce::Colour (0xff28e0c8));
-        dryMixSlider.setColour (juce::Slider::trackColourId,  juce::Colour (0xff2a2e37));
+        dryMixSlider.setColour (juce::Slider::thumbColourId, juce::Colour (0xff28e0c8));
+        dryMixSlider.setColour (juce::Slider::trackColourId, juce::Colour (0xff2a2e37));
         dryMixSlider.onValueChange = [this]
-        { dryMixVal.store ((float)dryMixSlider.getValue (), std::memory_order_relaxed); };
+        { proc.getStemPlayer ().dryMix.store ((float)dryMixSlider.getValue (), std::memory_order_relaxed); };
         addAndMakeVisible (dryMixSlider);
 
         dryMixLabel.setText ("Dry Mix", juce::dontSendNotification);
@@ -262,6 +240,21 @@ class StemRemixPanel : public juce::Component,
         dryMixLabel.setColour (juce::Label::textColourId, juce::Colour (0xff9aa0ab));
         dryMixLabel.setJustificationType (juce::Justification::centred);
         addAndMakeVisible (dryMixLabel);
+
+        unloadBtn.setButtonText ("Unload Stems");
+        unloadBtn.setColour (juce::TextButton::buttonColourId,  juce::Colour (0xff2a2e37));
+        unloadBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff9aa0ab));
+        unloadBtn.setVisible (false);
+        unloadBtn.onClick = [this]
+        {
+            proc.unloadStems ();
+            for (auto& s : proc.getStemPlayer ().stems)
+                s.stemFile = juce::File ();
+            for (auto& strip : strips) strip->repaint ();
+            unloadBtn.setVisible (false);
+            statusLabel.setText ({}, juce::dontSendNotification);
+        };
+        addAndMakeVisible (unloadBtn);
 
         startTimerHz (10);
     }
@@ -280,18 +273,22 @@ class StemRemixPanel : public juce::Component,
     {
         g.fillAll (juce::Colour (0xff13151a));
 
-        // Top divider
         g.setColour (juce::Colour (0xff2a2e37));
         g.fillRect (0, 0, getWidth (), 1);
 
-        // Header bar
         g.setColour (juce::Colour (0xff1e2128));
         g.fillRect (0, 1, getWidth (), kHeaderH - 1);
         g.setFont (juce::Font (juce::FontOptions (11.f).withStyle ("Bold")));
         g.setColour (juce::Colour (0xff28e0c8));
         g.drawText ("STEM REMIX", 8, 0, 96, kHeaderH, juce::Justification::centredLeft);
 
-        // Source waveform area
+        // Active indicator
+        if (proc.getStemPlayer ().isActive ())
+        {
+            g.setColour (juce::Colour (0xff28e0c8));
+            g.fillEllipse (102.f, (kHeaderH - 7) / 2.f, 7.f, 7.f);
+        }
+
         const auto wf = waveformBounds ();
         g.setColour (juce::Colour (0xff1e2128));
         g.fillRect (wf);
@@ -317,22 +314,19 @@ class StemRemixPanel : public juce::Component,
             g.drawRect (wf, 2);
         }
 
-        // Divider between strips and sidebar
         g.setColour (juce::Colour (0xff2a2e37));
-        const int sideX = getWidth () - sidebarWidth ();
-        g.fillRect (sideX - 1, kHeaderH, 1, getHeight () - kHeaderH);
+        g.fillRect (getWidth () - sidebarWidth () - 1, kHeaderH, 1, getHeight () - kHeaderH);
     }
 
     void resized () override
     {
         auto b = getLocalBounds ();
-        b.removeFromTop (1);            // divider
-        b.removeFromTop (kHeaderH);     // header bar painted manually
+        b.removeFromTop (1);
+        b.removeFromTop (kHeaderH);
 
-        // Header control row
         {
             auto hdr = getLocalBounds ().withTop (1).removeFromTop (kHeaderH);
-            hdr.removeFromLeft (100);   // "STEM REMIX" title
+            hdr.removeFromLeft (114);
             loadModelBtn.setBounds  (hdr.removeFromRight (100).withSizeKeepingCentre (96, 22));
             hdr.removeFromRight (4);
             openSourceBtn.setBounds (hdr.removeFromRight (100).withSizeKeepingCentre (96, 22));
@@ -343,30 +337,26 @@ class StemRemixPanel : public juce::Component,
         }
 
         b.removeFromTop (2);
-
-        // Waveform row (painted above, set bounds for mouse events)
         b.removeFromTop (kWaveH);
         b.removeFromTop (3);
 
-        // Remaining: strips (left) + sidebar (right)
         const int sw = sidebarWidth ();
         auto sidebar = b.removeFromRight (sw);
         b.removeFromLeft (1);
 
-        // Sidebar layout
         sidebar.reduce (6, 4);
         separateBtn.setBounds (sidebar.removeFromTop (26).withSizeKeepingCentre (sidebar.getWidth (), 22));
         sidebar.removeFromTop (3);
         cancelBtn.setBounds   (sidebar.removeFromTop (22).withSizeKeepingCentre (sidebar.getWidth (), 18));
+        unloadBtn.setBounds   (cancelBtn.getBounds ());  // same slot, exclusive visibility
         sidebar.removeFromTop (3);
         progressBar.setBounds (sidebar.removeFromTop (12));
         statusLabel.setBounds (sidebar.removeFromTop (20));
-        sidebar.removeFromTop (10);
+        sidebar.removeFromTop (8);
         dryMixLabel.setBounds (sidebar.removeFromTop (14));
         sidebar.removeFromTop (2);
         dryMixSlider.setBounds (sidebar.removeFromTop (16));
 
-        // Four equal channel strips
         if (b.getWidth () > 0)
         {
             const int sw4 = b.getWidth () / 4;
@@ -387,7 +377,6 @@ class StemRemixPanel : public juce::Component,
     }
 
   private:
-    // ── Constants ─────────────────────────────────────────────────────────────
     static constexpr int kHeaderH = 28;
     static constexpr int kWaveH   = 34;
 
@@ -452,6 +441,7 @@ class StemRemixPanel : public juce::Component,
         separateBtn.setEnabled (ready);
         separateBtn.setVisible (!isSeparating);
         cancelBtn.setVisible (isSeparating);
+        unloadBtn.setVisible (!isSeparating && proc.getStemPlayer ().isActive ());
         progressBar.setVisible (isSeparating);
     }
 
@@ -474,8 +464,8 @@ class StemRemixPanel : public juce::Component,
         juce::Component::SafePointer<StemRemixPanel> self (this);
         job->onDone = [self, outputDir] (bool ok, juce::String msg)
         {
-            if (auto* p = self.getComponent ())
-                p->onSeparationDone (ok, msg, outputDir);
+            if (auto* panel = self.getComponent ())
+                panel->onSeparationDone (ok, msg, outputDir);
         };
 
         activeJobId  = jobManager.submit (std::move (job));
@@ -488,25 +478,45 @@ class StemRemixPanel : public juce::Component,
     void onSeparationDone (bool ok, const juce::String& msg, const juce::File& outputDir)
     {
         isSeparating = false;
-        statusLabel.setText (ok ? "Done!" : msg, juce::dontSendNotification);
         updateButtons ();
-        if (ok)
-            loadStemFiles (outputDir);
+
+        if (! ok)
+        {
+            statusLabel.setText (msg, juce::dontSendNotification);
+            return;
+        }
+
+        statusLabel.setText ("Loading stems...", juce::dontSendNotification);
+        loadStemFiles (outputDir);
     }
 
     void loadStemFiles (const juce::File& outputDir)
     {
         static const char* kNames[4] = {"drums", "bass", "other", "vocals"};
         const juce::String base = sourceFile.getFileNameWithoutExtension ();
+
+        std::array<juce::File, 4> stemFiles;
+        for (int i = 0; i < 4; ++i)
+            stemFiles[i] = outputDir.getChildFile (base + "_" + kNames[i] + ".wav");
+
+        const bool loaded = proc.loadStems (stemFiles);
+        statusLabel.setText (loaded ? "Stems active!" : "Load failed",
+                             juce::dontSendNotification);
+
+        auto& sp = proc.getStemPlayer ();
         for (int i = 0; i < 4; ++i)
         {
-            const auto f = outputDir.getChildFile (base + "_" + kNames[i] + ".wav");
-            stemStates[i].stemFile = f.existsAsFile () ? f : juce::File{};
+            sp.stems[i].stemFile = (loaded && stemFiles[i].existsAsFile ())
+                                       ? stemFiles[i]
+                                       : juce::File ();
             strips[i]->repaint ();
         }
+
+        updateButtons ();
+        repaint (); // refresh active indicator
     }
 
-    // ── Timer: poll job progress ──────────────────────────────────────────────
+    // ── Timer ─────────────────────────────────────────────────────────────────
     void timerCallback () override
     {
         if (! isSeparating)
@@ -518,13 +528,13 @@ class StemRemixPanel : public juce::Component,
                 continue;
 
             progressVal = (double)job->progress.load (std::memory_order_relaxed);
-            const auto st = job->state.load (std::memory_order_acquire);
+            const auto stateVal = job->state.load (std::memory_order_acquire);
             const auto msg = job->getStatusMessage ();
 
             if (! msg.isEmpty ())
                 statusLabel.setText (msg, juce::dontSendNotification);
 
-            if (st == JobState::Cancelled)
+            if (stateVal == JobState::Cancelled)
             {
                 isSeparating = false;
                 statusLabel.setText ("Cancelled.", juce::dontSendNotification);
@@ -535,8 +545,9 @@ class StemRemixPanel : public juce::Component,
     }
 
     // ── Members ───────────────────────────────────────────────────────────────
-    // Declare stemStates before strips so strips' constructors can take references.
-    std::array<StemState, 4>                         stemStates;
+    AuClearAudioProcessor& proc;
+
+    // strips reference proc.getStemPlayer().stems[i] — declared after proc
     std::array<std::unique_ptr<StemChannelStrip>, 4> strips;
 
     OfflineJobManager jobManager;
@@ -551,14 +562,12 @@ class StemRemixPanel : public juce::Component,
     juce::TextButton openSourceBtn, loadModelBtn;
     juce::Label      srcFileLabel, modelLabel;
 
-    juce::TextButton  separateBtn, cancelBtn;
+    juce::TextButton  separateBtn, cancelBtn, unloadBtn;
     juce::Label       statusLabel;
     double            progressVal{0.0};
     juce::ProgressBar progressBar{progressVal};
     juce::Slider      dryMixSlider;
     juce::Label       dryMixLabel;
-
-    std::atomic<float> dryMixVal{0.0f};
 
     juce::String activeJobId;
     bool         isSeparating{false};

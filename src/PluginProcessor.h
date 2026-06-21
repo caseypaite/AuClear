@@ -2,6 +2,8 @@
 
 #include <JuceHeader.h>
 #include "engine/ProcessorRack.h"
+#include "engine/StemPlayer.h"
+#include <array>
 
 class AuClearAudioProcessor : public juce::AudioProcessor
 {
@@ -36,8 +38,6 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     float getCpuLoad () const { return loadMeasurer.getLoadAsProportion (); }
 
     // ─── Media player (standalone mode) ──────────────────────────────────────
-    // loadMediaFile: call on message thread. Returns true if the file was opened.
-    // When a file is loaded the transport replaces device-input audio in processBlock.
     bool loadMediaFile (const juce::File& file);
     void unloadMediaFile ();
 
@@ -47,21 +47,28 @@ class AuClearAudioProcessor : public juce::AudioProcessor
     }
 
     juce::AudioTransportSource& getTransportSource () { return transportSource; }
-    juce::AudioFormatManager& getFormatManager () { return formatManager; }
+    juce::AudioFormatManager&   getFormatManager ()   { return formatManager; }
+
+    // ─── Stem player (standalone mode, Phase 4b) ──────────────────────────────
+    // Call on the message thread after Demucs separation finishes.
+    // Files must be in stem order: 0=drums, 1=bass, 2=other, 3=vocals.
+    bool loadStems (const std::array<juce::File, 4>& files);
+    void unloadStems ();
+    StemPlayer& getStemPlayer () { return stemPlayer; }
 
   private:
     ProcessorRack rack;
     juce::AudioProcessorValueTreeState apvts;
     juce::AudioProcessLoadMeasurer loadMeasurer;
 
-    // Transport source — message thread sets it up; audio thread reads via getNextAudioBlock.
-    // AudioTransportSource uses an internal SpinLock so setSource() and getNextAudioBlock()
-    // are safe to call from different threads.
-    juce::AudioFormatManager formatManager;
-    juce::AudioTransportSource transportSource;
+    juce::AudioFormatManager           formatManager;
+    juce::AudioTransportSource         transportSource;
     std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
     std::atomic<bool> mediaFileLoaded{false};
     std::atomic<bool> sourceIsMono{false};
+
+    StemPlayer              stemPlayer;
+    juce::AudioBuffer<float> dryWorkBuffer; // pre-allocated scratch for stem dry blend
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout ();
 

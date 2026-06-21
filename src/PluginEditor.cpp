@@ -19,7 +19,7 @@ AuClearAudioProcessorEditor::AuClearAudioProcessorEditor (AuClearAudioProcessor&
         mediaPlayerPanel = std::make_unique<MediaPlayerPanel> (p);
         addAndMakeVisible (*mediaPlayerPanel);
 
-        stemRemixPanel = std::make_unique<StemRemixPanel> ();
+        stemRemixPanel = std::make_unique<StemRemixPanel> (p);
         addAndMakeVisible (*stemRemixPanel);
     }
 
