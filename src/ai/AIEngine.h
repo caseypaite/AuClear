@@ -57,7 +57,7 @@ class AIEngine
     double modelSR = 48000.0;
     int modelFrame = 480;
 
-    std::unique_ptr<OnnxSession> session;
+    std::vector<std::unique_ptr<OnnxSession>> sessions;
 
     // Per-channel state (heap-allocated to avoid large stack objects)
     struct ChannelState;

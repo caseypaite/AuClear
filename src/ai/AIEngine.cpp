@@ -47,7 +47,12 @@ struct AIEngine::ChannelState
     }
 };
 
-AIEngine::AIEngine () : session (std::make_unique<OnnxSession> ()) {}
+AIEngine::AIEngine ()
+{
+    sessions.resize (2);
+    sessions[0] = std::make_unique<OnnxSession> ();
+    sessions[1] = std::make_unique<OnnxSession> ();
+}
 AIEngine::~AIEngine () = default;
 
 static void parseConfigIni (const juce::File& configFile, double& outSR, int& outFrameSize)
@@ -113,47 +118,63 @@ bool AIEngine::loadModel (const juce::File& file)
         }
     }
 
-    const bool ok = session->loadModel (file.getFullPathName ().toStdString (), modelFrame);
+    const bool ok = sessions[0]->loadModel (file.getFullPathName ().toStdString (), modelFrame);
     if (ok)
     {
         // ONNX shape frame size is the ultimate source of truth if config.ini didn't override it
-        int discoveredFrame = session->frameSize ();
+        int discoveredFrame = sessions[0]->frameSize ();
         if (discoveredFrame > 0 && ! hasCustomHopSize)
             modelFrame = discoveredFrame;
+
+        // If it's a mono model, load a second instance for the right channel
+        if (! sessions[0]->isStereo ())
+        {
+            sessions[1]->loadModel (file.getFullPathName ().toStdString (), modelFrame);
+        }
+        else
+        {
+            sessions[1]->unloadModel ();
+        }
 
         // Re-prepare dynamically to update channel states/resamplers with new model parameters
         if (prepared)
             prepare (hostSR, maxBlock);
 
-        session->preWarm ();   // JIT compile on message thread before audio thread sees the model
-        session->makeReady (); // release-store: audio thread may now call runFrame()
+        sessions[0]->preWarm ();   // JIT compile on message thread before audio thread sees the model
+        if (! sessions[0]->isStereo ())
+            sessions[1]->preWarm ();
+
+        sessions[0]->makeReady (); // release-store: audio thread may now call runFrame()
+        if (! sessions[0]->isStereo ())
+            sessions[1]->makeReady ();
     }
     return ok;
 }
 
 void AIEngine::unloadModel ()
 {
-    session->unloadModel ();
+    sessions[0]->unloadModel ();
+    sessions[1]->unloadModel ();
 }
 
 bool AIEngine::isLoaded () const
 {
-    return session->isLoaded ();
+    return sessions[0]->isLoaded ();
 }
 
 OnnxSession::Status AIEngine::getStatus () const
 {
-    return session->getStatus ();
+    return sessions[0]->getStatus ();
 }
 
 juce::String AIEngine::getStatusString () const
 {
-    switch (session->getStatus ())
+    switch (sessions[0]->getStatus ())
     {
     case OnnxSession::Status::Ready:
         return "Model ready";
     case OnnxSession::Status::Error:
-        return "Error: " + juce::String (session->getLastError ());
+        return "Error: " + juce::String (sessions[0]->getLastError ());
     case OnnxSession::Status::Idle:
     default:
         return "No model loaded";
@@ -170,7 +191,7 @@ void AIEngine::prepare (double sampleRate, int maxBlockSize)
     const int frameHost = (int)std::ceil ((double)modelFrame * sampleRate / modelSR);
     cachedLatency = frameHost;
 
-    const bool isStereo = session->isStereo ();
+    const bool isStereo = sessions[0]->isStereo ();
 
     constexpr int numCh = 2; // always prepare stereo
     channels.resize ((size_t)numCh);
@@ -188,7 +209,7 @@ void AIEngine::prepare (double sampleRate, int maxBlockSize)
 
 void AIEngine::reset ()
 {
-    const bool isStereo = session->isStereo ();
+    const bool isStereo = sessions[0]->isStereo ();
     if (channels.size () >= 2 && channels[0] && channels[1])
     {
         channels[0]->reset (hostSR, modelSR, maxBlock, modelFrame, cachedLatency, isStereo ? 2 : 1);
@@ -206,7 +227,7 @@ void AIEngine::process (juce::AudioBuffer<float>& buffer, float strength, bool l
     if (numCh == 0)
         return;
 
-    const bool isStereo = isLoaded () && session->isStereo ();
+    const bool isStereo = isLoaded () && sessions[0]->isStereo ();
     const juce::int64 t0 = juce::Time::getHighResolutionTicks ();
 
     if (isStereo && numCh >= 2)
@@ -267,7 +288,7 @@ void AIEngine::process (juce::AudioBuffer<float>& buffer, float strength, bool l
         const float* srcPtrs[2] = { cs0.modelIn.data (), cs1.modelIn.data () };
         cs0.reBlocker.push (srcPtrs, nModel, [this] (const float* const* in, float* const* out)
         {
-            if (!session->runFrame (in[0], in[1], out[0], out[1]))
+            if (!sessions[0]->runFrame (in[0], in[1], out[0], out[1]))
             {
                 std::memcpy (out[0], in[0], (size_t)modelFrame * sizeof (float));
                 std::memcpy (out[1], in[1], (size_t)modelFrame * sizeof (float));
@@ -323,119 +344,85 @@ void AIEngine::process (juce::AudioBuffer<float>& buffer, float strength, bool l
     }
     else
     {
-        // ── Mono model path (mix down stereo to mono, process, duplicate) ──
-        auto& cs0 = *channels[0];
-        auto& cs1 = *channels[1];
-        
-        float* wr0 = buffer.getWritePointer (0);
-        float* wr1 = numCh >= 2 ? buffer.getWritePointer (1) : nullptr;
-        const int n = buffer.getNumSamples ();
+        // ── Mono model path (separate Left/Right processing) ────────────────
+        // We run each channel through its own OnnxSession to avoid state mixing
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            auto& cs = *channels[(size_t)ch];
+            float* wr = buffer.getWritePointer (ch);
+            const int n = buffer.getNumSamples ();
 
-        // 1. Capture dry into rings
-        const int cap0 = (int)cs0.dryRing.size ();
-        for (int i = 0; i < n; ++i)
-        {
-            cs0.dryRing[(size_t)(cs0.dryWrite % cap0)] = wr0[i];
-            cs0.dryWrite = (cs0.dryWrite + 1) % cap0;
-        }
-        int cap1 = 0;
-        if (wr1 != nullptr)
-        {
-            cap1 = (int)cs1.dryRing.size ();
+            // 1. Capture dry into ring
+            const int cap = (int)cs.dryRing.size ();
             for (int i = 0; i < n; ++i)
             {
-                cs1.dryRing[(size_t)(cs1.dryWrite % cap1)] = wr1[i];
-                cs1.dryWrite = (cs1.dryWrite + 1) % cap1;
+                cs.dryRing[(size_t)(cs.dryWrite % cap)] = wr[i];
+                cs.dryWrite = (cs.dryWrite + 1) % cap;
             }
-        }
 
-        // 2. Mix down host L and R to mono at host SR.
-        // We reuse cs0.resampleInPad to store mixed down host-SR mono input,
-        // which has size maxBlock + 16 (since it was allocated as maxHostBlock + 16).
-        float* monoHost = cs0.resampleInPad.data ();
-        if (wr1 != nullptr)
-        {
-            for (int i = 0; i < n; ++i)
-                monoHost[i] = 0.5f * (wr0[i] + wr1[i]);
-        }
-        else
-        {
-            std::memcpy (monoHost, wr0, (size_t)n * sizeof (float));
-        }
-
-        // 3. Resample host -> model SR
-        const double downRatio = hostSR / modelSR;
-        int nModel;
-        if (std::abs (hostSR - modelSR) < 0.5)
-        {
-            nModel = n;
-            std::memcpy (cs0.modelIn.data (), monoHost, (size_t)n * sizeof (float));
-        }
-        else
-        {
-            nModel = (int)std::ceil ((double)n / downRatio);
-            nModel = std::min (nModel, (int)cs0.modelIn.size ());
-
-            // Pad the end of monoHost for the interpolator
-            const int padL = std::min (16, (int)cs0.resampleInPad.size () - n);
-            if (padL > 0)
-                std::fill (cs0.resampleInPad.begin () + n, cs0.resampleInPad.begin () + n + padL, 0.f);
-
-            cs0.downSampler.process (downRatio, monoHost, cs0.modelIn.data (), nModel);
-        }
-
-        // 4. Re-block and inference
-        const float* srcPtr = cs0.modelIn.data ();
-        cs0.reBlocker.push (&srcPtr, nModel, [this] (const float* const* in, float* const* out)
-        {
-            if (!session->runFrame (in[0], out[0]))
+            // 2. Resample host -> model SR
+            const double downRatio = hostSR / modelSR;
+            int nModel;
+            if (std::abs (hostSR - modelSR) < 0.5)
             {
-                std::memcpy (out[0], in[0], (size_t)modelFrame * sizeof (float));
+                nModel = n;
+                std::memcpy (cs.modelIn.data (), wr, (size_t)n * sizeof (float));
             }
-        });
-
-        float* dstPtr = cs0.modelOut.data ();
-        cs0.reBlocker.pop (&dstPtr, nModel);
-
-        // Pad modelOut for LagrangeInterpolator
-        const int padStart = std::min (nModel, (int)cs0.modelOut.size ());
-        const int padSize = std::min (16, (int)cs0.modelOut.size () - padStart);
-        if (padSize > 0)
-            std::fill (cs0.modelOut.begin () + padStart, cs0.modelOut.begin () + padStart + padSize, 0.f);
-
-        // 5. Resample model -> host SR (into cs0.wetHost)
-        if (std::abs (hostSR - modelSR) < 0.5)
-        {
-            std::memcpy (cs0.wetHost.data (), cs0.modelOut.data (), (size_t)n * sizeof (float));
-        }
-        else
-        {
-            const double upRatio = modelSR / hostSR;
-            cs0.upSampler.process (upRatio, cs0.modelOut.data (), cs0.wetHost.data (), n);
-        }
-
-        // 6. Blend dry and wet back to output buffer (duplicating mono wet output to stereo)
-        for (int i = 0; i < n; ++i)
-        {
-            const float wet = cs0.wetHost[(size_t)i];
-
-            const float dry0 = cs0.dryRing[(size_t)(cs0.dryRead % cap0)];
-            cs0.dryRead = (cs0.dryRead + 1) % cap0;
-
-            if (listen)
-                wr0[i] = dry0 - wet;
             else
-                wr0[i] = dry0 + strength * (wet - dry0);
-
-            if (wr1 != nullptr)
             {
-                const float dry1 = cs1.dryRing[(size_t)(cs1.dryRead % cap1)];
-                cs1.dryRead = (cs1.dryRead + 1) % cap1;
+                nModel = (int)std::ceil ((double)n / downRatio);
+                nModel = std::min (nModel, (int)cs.modelIn.size ());
+
+                const int capPad = std::min (n, (int)cs.resampleInPad.size ());
+                std::memcpy (cs.resampleInPad.data (), wr, (size_t)capPad * sizeof (float));
+                const int padSize = std::min (16, (int)cs.resampleInPad.size () - capPad);
+                if (padSize > 0)
+                    std::fill (cs.resampleInPad.begin () + capPad, cs.resampleInPad.begin () + capPad + padSize, 0.f);
+
+                cs.downSampler.process (downRatio, cs.resampleInPad.data (), cs.modelIn.data (), nModel);
+            }
+
+            // 3. Re-block and inference
+            const float* srcPtr = cs.modelIn.data ();
+            cs.reBlocker.push (&srcPtr, nModel, [this, ch] (const float* const* in, float* const* out)
+            {
+                if (!sessions[(size_t)ch]->runFrame (in[0], out[0]))
+                {
+                    std::memcpy (out[0], in[0], (size_t)modelFrame * sizeof (float));
+                }
+            });
+
+            float* dstPtr = cs.modelOut.data ();
+            cs.reBlocker.pop (&dstPtr, nModel);
+
+            // Pad modelOut for upSampler
+            const int padStart = std::min (nModel, (int)cs.modelOut.size ());
+            const int padSize = std::min (16, (int)cs.modelOut.size () - padStart);
+            if (padSize > 0)
+                std::fill (cs.modelOut.begin () + padStart, cs.modelOut.begin () + padStart + padSize, 0.f);
+
+            // 4. Resample model -> host SR
+            if (std::abs (hostSR - modelSR) < 0.5)
+            {
+                std::memcpy (cs.wetHost.data (), cs.modelOut.data (), (size_t)n * sizeof (float));
+            }
+            else
+            {
+                const double upRatio = modelSR / hostSR;
+                cs.upSampler.process (upRatio, cs.modelOut.data (), cs.wetHost.data (), n);
+            }
+
+            // 5. Mix dry and wet back to output buffer
+            for (int i = 0; i < n; ++i)
+            {
+                const float dry = cs.dryRing[(size_t)(cs.dryRead % cap)];
+                cs.dryRead = (cs.dryRead + 1) % cap;
+                const float wet = cs.wetHost[(size_t)i];
 
                 if (listen)
-                    wr1[i] = dry1 - wet;
+                    wr[i] = dry - wet;
                 else
-                    wr1[i] = dry1 + strength * (wet - dry1);
+                    wr[i] = dry + strength * (wet - dry);
             }
         }
     }
